@@ -562,6 +562,8 @@ public:
 	void collapseAll();
 	bool canSwitchLayout();
 	void switchLayout();
+	bool canToggleDetailsVisibility();
+	void toggleDetailsVisibility();
 
 Q_SIGNALS:
 	void typeNameNavigated(const std::string& typeName, bool newSelection);

@@ -12,7 +12,6 @@ If you're opening a [Universal Mach-O](https://en.wikipedia.org/wiki/Universal_b
 
 It's worth digging into Binary Ninja's [settings](../settings.md) and seeing what's available to tune, but if you ever want to change a setting for a single binary, you can Open (it) with Options. Go to File -> Open with Options, and any settings you change will apply to only that file.
 
-<!-- TODO : Can you analyze a file while IDA is running its analysis?
 ## Analyzing While Analyzing -->
 
 ## Importing Data
@@ -34,17 +33,110 @@ The following data will be imported:
 
 ## Keybindings
 
-Most of the keybindings you're used to are the same. Any "actions" (renaming, setting types, opening cross-references, etc.) you might want to perform can be found in the [command palette](../index.md#command-palette), which will save you from digging through unfamiliar right-click menus and help you learn any new keybindings. You can even [add your own actions](https://binary.ninja/2024/02/15/command-palette.html#how-do-i-register-actions-with-the-command-palette-myself) with ease. All actions can have their keybinding set, changed, or removed in the [keybindings menu](../index.md#default-hotkeys).
+To quickly set up IDA-like keybindings, open the Welcome Window from the Help menu (Help → Show Welcome Window) and select that you're migrating from IDA. The onboarding wizard will offer to apply IDA-style keybindings for you.
+
+Alternatively, you can manually replace your [keybindings](../index.md#custom-hotkeys) file in your [user folder](../index.md#user-folder) with [this file](../../files/ida-keybindings.json) to have the most seamless experience when changing to Binary Ninja.
+
+Most of the default keybindings you're used to are the same. Any "actions" (renaming, setting types, opening cross-references, etc) you might want to perform can be found in the [command palette](../index.md#command-palette), which will save you from digging through unfamiliar right-click menus and help you learn any new keybindings. You can even [add your own actions](https://binary.ninja/2024/02/15/command-palette.html#how-do-i-register-actions-with-the-command-palette-myself) with ease. All actions can have their keybinding set, changed, or removed in the [keybindings menu](../index.md#default-hotkeys).
 
 Some major exceptions are:
 
-- Save is `[CTRL/⌘-S]`.
-- All our find options are under `[CTRL/⌘-F]`.
-- The "subviews" keybindings are:
-    - `T` for Types
-    - `H` to toggle to/from Hex View
-    - `[TAB]` to toggle to/from disassembly
-- `0` toggles integer display between hexadecimal and decimal, which is `H` in IDA
+<!-- BEGIN GENERATED KEYBINDING TABLES -->
+Analysis Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Add Bookmark | `Ctrl/Cmd+M` |
+| Add Tag | `Alt+M` |
+| Assemble | `Ctrl/Cmd+Alt+A` |
+| Change Type | `Y` |
+| Edit Function Properties | `Shift+E` |
+| Enter Comment | `:` |
+| Focus Cross References | `Shift+X` |
+| Make Function | `P` |
+| Convert to NOP | `Ctrl/Cmd+Alt+N` |
+| Pin Cross References | `X` |
+| Rename | `N` |
+| Undefine | `U` |
+
+Navigation Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Go to Address | `G` |
+| Go to Entry Point | `Ctrl/Cmd+E` |
+| Navigate Back | `Escape` |
+| Navigate Forward | `Ctrl/Cmd+Enter` |
+
+Types Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Display as Hex | `H` |
+| Cycle Integer Size | `B` |
+| Make C String | `A` |
+| Make Pointer | `O` |
+
+Views & Panels Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Focus Log | `~` |
+| Focus Memory Map | `Shift+F7` |
+| Focus Stack Trace | `Ctrl/Cmd+Alt+S` |
+| Focus Strings | `Shift+F12` |
+| Focus Symbols | `Shift+F3` |
+| Focus Tags | `Alt+F11` |
+| Focus Types | `Shift+F9` |
+| Toggle Decompiled View | `F5` |
+| View in Graph | `Space` |
+| View in Hex Editor | `Shift+F4` |
+| View in Linear Disassembly | `Space` |
+
+Search Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Command Palette | `Ctrl/Cmd+P` |
+| Find Next | `Ctrl/Cmd+T` |
+| Find | `Alt+T` |
+
+Debugger Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Kill | `Ctrl/Cmd+F2` |
+| Resume | `F9` |
+| Run To Here | `F4` |
+| Step Into | `F7` |
+| Step Over | `F8` |
+| Step Return | `Ctrl/Cmd+F7` |
+| Toggle Breakpoint | `F2` |
+
+File Operations Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Close Pane | `Ctrl/Cmd+W` |
+| Import Header File | `Ctrl/Cmd+F9` |
+<!-- END GENERATED KEYBINDING TABLES -->
+
+## UI Settings
+
+When you select "IDA-like" from the UI Settings dropdown in the welcome window, Binary Ninja will configure several settings to provide a more IDA-familiar experience:
+
+### View Settings
+- **View Type**: Sets the default view to Single Function View in linear mode, losing Binary Ninja's normal ability to scroll infinitely through decompilation
+- **Show Address**: Disabled in linear view for a cleaner interface
+
+### Feature Map
+- **Location**: Moves the feature map to the top of the view
+
+### Sidebar Configuration
+- **Default Sidebars**: Shows only the Symbols sidebar by default (instead of both Symbols and Cross References)
+- **Modal Cross-References**: Sets cross-references to appear in a dialog window instead of the pinned sidebar
+
+These settings can be changed at any time through Binary Ninja's settings menu (`[CTRL/⌘-,]`).
 
 ## Cross-References
 
@@ -64,9 +156,9 @@ Binary Ninja's layout is very similar to what you're used to in IDA, but there's
 
 ### Feature Map
 
-If you want the [feature map](../index.md#feature-map) back to where you're used to, right-click it, find "Feature Map Location" and change it to the top. That said, take notice that Binary Ninja's feature map is 2d: both directions you move your cursor changes the address in Binary Ninja. The exact number of bytes that fit across the width of the feature map scales to the size of the binary. You can disable this in the right-click menu by selecting "Linear Feature Map."
+When using the welcome window settings, the [feature map](../index.md#feature-map) is moved to where you might be more comfortable. To move it back, right-click anywhere in it. That said, take notice that Binary Ninja's feature map is 2d: both directions you move your cursor changes the address in Binary Ninja. The exact number of bytes that fit across the width of the feature map scales to the size of the binary. You can disable this in the right-click menu by selecting "Linear Feature Map."
 
-We also have an entropy map, if you need it, but it's tucked away in [triage view](https://binary.ninja/2019/04/01/hackathon-2019-summary.html#triage-mode-rusty).
+We also have an entropy map if you need it. It's tucked away in [triage view](../index.md#triage-summary).
 
 ### Sidebars
 
@@ -83,8 +175,8 @@ Check out the [tiling panes](../index.md#tiling-panes) docs for more information
 ...about switching to Binary Ninja! We know leaving your old tool behind can be hard, and there will be things you miss, but we think there are a lot of features packed into Binary Ninja that you'll love. Here are a couple we think you'll appreciate:
 
  - Decompilation for every architecture, including [ones you bring yourself](https://binary.ninja/2020/01/08/guide-to-architecture-plugins-part1.html)
- - [Updates every day](../index.md#updates) on the dev branch (nearly)
- - [Our awesome native Python API](../../dev/cookbook.md) (and [C++](https://api.binary.ninja/cpp/), and [Rust](https://dev-rust.binary.ninja/))
+ - [Updates (nearly) every day](../index.md#updates) on the dev branch
+ - [Our awesome first-party Python API](../../dev/cookbook.md) (and [C++](https://api.binary.ninja/cpp/), and [Rust](https://dev-rust.binary.ninja/) too!)
  - [**So** much open source](https://github.com/Vector35/binaryninja-api?tab=readme-ov-file#related-repositories) (that includes our architecture modules!)
 
 ---

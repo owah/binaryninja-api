@@ -25,51 +25,105 @@ See [the Ghidra export documentation](./ghidraexport.md)
 
 ## Keybindings
 
-Binary Ninja's keybindings are very different from Ghidra. Thankfully, [Binary Ninja's action system](https://binary.ninja/2024/02/15/command-palette.html) allows you to easily find actions and view the keybindings extremely easily. It'll also save you from digging through unfamiliar right-click menus while helping you learn any new keybindings. All actions can have their keybinding set, changed, or removed in the [keybindings menu](../../index.md#default-hotkeys).
+To quickly set up Ghidra-like keybindings, open the Welcome Window from the Help menu (Help → Show Welcome Window) and select that you're migrating from Ghidra. The onboarding wizard will offer to apply Ghidra-style keybindings for you.
+
+Alternatively, you can manually replace your [keybindings](../../index.md#custom-hotkeys) file in your [user folder](../../index.md#user-folder) with [this file](../../../files/ghidra-keybindings.json) to have the most seamless experience when changing to Binary Ninja.
+
+Binary Ninja's default keybindings are very different from Ghidra. Thankfully, [Binary Ninja's action system](https://binary.ninja/2024/02/15/command-palette.html) allows you to easily find actions and view the keybindings extremely easily. It'll also save you from digging through unfamiliar right-click menus while helping you learn any new keybindings. All actions can have their keybinding set, changed, or removed in the [keybindings menu](../../index.md#default-hotkeys).
 
 Some of the most useful default keybindings are as follows:
 
+<!-- BEGIN GENERATED KEYBINDING TABLES -->
 Analysis Keybindings:
 
-| Action               | Keybinding         |
-|----------------------|--------------------|
-| Rename               | `N`                |
-| Set Type             | `Y`                |
-| Go to                | `G`                |
-| Toggle Disasm/Decomp | `[TAB]`            |
-| Toggle Graph/Linear  | `[SPACE]`          |
-| Toggle Hex View      | `H`                |
-| Insert Comment       | `;`                |
-| Manage Plugins       | `[CTRL/⌘-SHIFT-B]` |
-| Open Command Palette | `[CTRL/⌘-P]`       |
-| Open Python Console  | `\``               |
+| Action | Shortcut |
+| --- | --- |
+| Change Type | `Ctrl/Cmd+L` |
+| Copy Address | `Ctrl/Cmd+Shift+C` |
+| Edit Function Properties | `Shift+E` |
+| Enter Comment | `;` |
+| Make Function | `F` |
+| Edit Current Line (Patch) | `E` |
+| Redo | `Ctrl/Cmd+Shift+Z` |
+| Rename Type | `L` |
+| Rename | `L` |
+| Show Cross References | `X` |
+| Undefine | `C` |
+| Undefine Type | `C` |
+| Undo | `Ctrl/Cmd+Z` |
+
+Navigation Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Go to Address | `G` |
+| Navigate Back | `Alt+Left` |
+| Navigate Forward | `Alt+Right` |
+| Navigate to Selection | `Enter` |
 
 Types Keybindings:
 
-| Action               | Keybinding |
-|----------------------|------------|
-| Set Type             | Y          |
-| Make C String        | A          |
-| Make Magic Struct    | S          |
-| Open Types Menu      | T          |
-| Make 1-byte elements | 1          |
-| Make 2-byte elements | 2          |
-| Make 4-byte elements | 4          |
-| Make 8-byte elements | 8          |
-| Make array           | *          |
+| Action | Shortcut |
+| --- | --- |
+| Display as Character | `R` |
+| Display as Enum | `M` |
+| Cycle Float Size | `Shift+F` |
+| Cycle Integer Size | `B` |
+| Invert Integer Sign | `-` |
+| Make Array | `[` |
+| Make C String | `'` |
+| Make Pointer | `P` |
 
-Common System Keybindings:
+Views & Panels Keybindings:
 
-| Action            | Keybinding         |
-|-------------------|--------------------|
-| Open File         | `[CTRL/⌘-O]`       |
-| Open with Options | `[CTRL/⌘-SHIFT-O]` |
-| Save              | `[CTRL/⌘-S]`       |
-| Undo              | `[CTRL/⌘-Z]`       |
-| Redo              | `[CTRL/⌘-SHIFT-Z]` |
-| Find              | `[CTRL/⌘-F]`       |
-| Open Settings     | `[CTRL/⌘-,]`       |
-| Open Keybindings  | `[CTRL/⌘-SHIFT-B]` |
+| Action | Shortcut |
+| --- | --- |
+| Focus Log | `~` |
+| Keybindings | `F4` |
+| Toggle Decompiled View | `F5` |
+| Toggle Disassembly View | `Ctrl/Cmd+E` |
+| View in Hex Editor | `H` |
+| View in Linear Disassembly | `Space` |
+| Zoom to Fit | `W` |
+
+Search Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Find | `S` |
+
+File Operations Keybindings:
+
+| Action | Shortcut |
+| --- | --- |
+| Close Pane | `Ctrl/Cmd+W` |
+| New Binary Data | `Ctrl/Cmd+Shift+N` |
+| New Project | `Ctrl/Cmd+N` |
+| New Window | `Ctrl/Cmd+Alt+N` |
+| Import Files | `Ctrl/Cmd+I` |
+| Import Folder | `Ctrl/Cmd+Shift+I` |
+| Save Contents As | `O` |
+<!-- END GENERATED KEYBINDING TABLES -->
+
+## UI Settings
+
+When you select "Ghidra-like" from the UI Settings dropdown in the welcome window, Binary Ninja will configure several settings to provide a more Ghidra-familiar experience:
+
+### View Settings
+- **View Type**: Sets the default view to Single Function View in linear mode, similar to Ghidra's listing view
+- **Show Address**: Disabled in linear view for a cleaner interface
+
+### Feature Map
+- **Visibility**: Hidden by default (you can show/hide the feature map at any time using `View > Show Feature Map`)
+
+### Sidebar Configuration
+- **Default Sidebars**: Shows only the Symbols sidebar by default (instead of both Symbols and Cross References)
+
+### Types Sidebar
+- **Details Section**: Hidden by default to maximize space for the type list
+- You can toggle the details section visibility using the hamburger menu in the Types sidebar (look for "Hide Details")
+
+These settings can be changed at any time through Binary Ninja's settings menu (`[CTRL/⌘-,]`). For a more complete Ghidra-like layout with split panes, see the Layout section below.
 
 ## Layout
 
@@ -79,15 +133,12 @@ Binary Ninja's layout is also a bit different from what you're used to in Ghidra
 
 ![xref icon >](../../../img/xref-icon.png "Xref Icon")
 
-The default behavior of cross-references to open in a tabbed reference UI element similar to how ghidra does it, however the `X` hotkey is used by default (and can be changed in the [keybindings UI](index.md#custom-hotkeys)).
+The default behavior of cross-references to open in a tabbed reference UI element similar to how Ghidra does it, however the `X` hotkey is used by default (and can be changed in the [keybindings UI](index.md#custom-hotkeys)).
+
 
 ### Theme
 
-This doesn't exactly have to do with your layout, but it goes a long way towards making the interface feel a bit more familiar. We have an expansive list of [community themes](https://github.com/Vector35/community-themes), and [a guide](../../../dev/themes.md) and a [blog post](https://binary.ninja/2021/07/08/creating-great-themes.html) on how to make your own. The built-in "Classic" theme should feel nostalgic, but if you're looking for a light theme that's slightly easier on the eyes, try out Summer or Solarized Light.
-
-### Feature Map
-
-Binary Ninja's [feature map](../../index.md#feature-map) lives on the right side of your main view area. If you'd rather not see it, you can right-click it and select "Hide Feature Map."
+This doesn't exactly have to do with your layout, but it go a long way towards making the interface feel a bit more familiar. We have an expansive list of [community themes](https://github.com/Vector35/community-themes), and [a guide](../../../dev/themes.md) and a [blog post](https://binary.ninja/2021/07/08/creating-great-themes.html) on how to make your own. The built-in "Classic" theme should feel nostalgic, but if you're looking for a light theme that's slightly easier on the eyes, try out Summer or Solarized Light.
 
 ### Sidebars
 
@@ -99,9 +150,9 @@ That said, I'll walk you through how to set up your sidebars to get it looking v
 
 But first, there are a couple caveats. Binary Ninja does not have an exact 1-to-1 widget for everything in Ghidra. The Program Tree is one of those elements; it's a bit like our memory map, but it's also kinda not. Our new Binary Ninja layout assumes you've closed the program tree in Ghidra. Now Binary Ninja and Ghidra's sidebars are starting to match by having the symbols view on the top (which we start as a flat listing for you to organize into file yourself), and a different sidebar panel below it. Be sure to check out the options in the Symbols list's hamburger menu (the three lines in the top right).
 
-#### Cross References and Types Manager
+#### Types Manager
 
-We show cross references by default, but you can toggle that just by clicking it off on the left side under the divider line. If you want to match how Ghidra has its types showing on the bottom, you can simply drag the types widget to beneath the divider line on the left side. Whenever you open your sidebar, both areas will open together. The Types sidebar also shows you the full type definition when you select a type.
+If you want to match how Ghidra has its types showing on the bottom, you can simply drag the types widget to beneath the divider line on the left side. Whenever you open your sidebar, both areas will open together. The Types sidebar also shows you the full type definition when you select a type.
 
 #### Main Area
 

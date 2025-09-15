@@ -354,6 +354,7 @@ extern "C"
 	typedef struct BNConstantRenderer BNConstantRenderer;
 	typedef struct BNStringRecognizer BNStringRecognizer;
 	typedef struct BNCustomStringType BNCustomStringType;
+	typedef struct BNDatabaseObject BNDatabaseObject;
 
 	typedef struct BNVersionInfo {
 		uint32_t major;
@@ -4497,6 +4498,7 @@ extern "C"
 	    BNKeyValueStore* cache, void* ctxt, BNProgressFunction progress,
 	    bool openForConfiguration, bool restoreRawView);
 	BINARYNINJACOREAPI BNDatabase* BNGetFileMetadataDatabase(BNFileMetadata* file);
+	BINARYNINJACOREAPI BNDatabaseObject* BNGetFileDatabaseObject(BNFileMetadata* file, BNDatabaseObject* parent);
 
 	// Key value store
 	BINARYNINJACOREAPI BNKeyValueStore* BNCreateKeyValueStore(void);
@@ -9429,6 +9431,15 @@ extern "C"
 	BINARYNINJACOREAPI BNPossibleValueSet BNPossibleValueSetRotateRight(const BNPossibleValueSet* object, const BNPossibleValueSet* other, size_t size);
 	BINARYNINJACOREAPI BNPossibleValueSet BNPossibleValueSetNegate(const BNPossibleValueSet* object, size_t size);
 	BINARYNINJACOREAPI BNPossibleValueSet BNPossibleValueSetNot(const BNPossibleValueSet* object, size_t size);
+
+	// Database Objects
+	BINARYNINJACOREAPI BNDatabaseObject* BNNewDatabaseObjectReference(BNDatabaseObject* object);
+	BINARYNINJACOREAPI void BNFreeDatabaseObject(BNDatabaseObject* object);
+	BINARYNINJACOREAPI void BNFreeDatabaseObjectList(BNDatabaseObject** objects, size_t count);
+	BINARYNINJACOREAPI int BNGetDatabaseObjectType(BNDatabaseObject* object);
+	BINARYNINJACOREAPI char* BNGetDatabaseObjectName(BNDatabaseObject* object);
+	BINARYNINJACOREAPI BNDatabaseObject* BNGetDatabaseObjectParent(BNDatabaseObject* object);
+	BINARYNINJACOREAPI size_t BNGetDatabaseObjectChildren(BNDatabaseObject* object, char*** names, BNDatabaseObject*** objects);
 
 #ifdef __cplusplus
 }

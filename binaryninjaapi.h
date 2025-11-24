@@ -23352,6 +23352,7 @@ namespace BinaryNinja {
 		int GetType() const;
 		std::string GetId() const;
 		std::string GetDescription() const;
+		Ref<Metadata> GetMetadata() const;
 		Ref<DatabaseObject> GetParent() const;
 		std::unordered_map<std::string, Ref<DatabaseObject>> GetChildren();
 		std::vector<std::string> GetDependencies() const;

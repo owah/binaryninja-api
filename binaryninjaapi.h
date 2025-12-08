@@ -23346,7 +23346,6 @@ namespace BinaryNinja {
 	{
 	public:
 		explicit DatabaseObject(BNDatabaseObject* database);
-		virtual ~DatabaseObject();
 
 		// TODO: User subclassing
 		int GetType() const;
@@ -23364,7 +23363,6 @@ namespace BinaryNinja {
 	public:
 		explicit DiffState(BNDiffState* state);
 		explicit DiffState(Ref<Logger> logger);
-		virtual ~DiffState();
 
 		std::vector<std::string> GetErrors() const;
 		void ClearErrors();
@@ -23392,7 +23390,6 @@ namespace BinaryNinja {
 	{
 	public:
 		DiffObject(BNDiffObject* object);
-		virtual ~DiffObject();
 
 		std::optional<std::string> GetBase() const;
 		std::optional<std::string> GetLeft() const;

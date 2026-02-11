@@ -12,7 +12,7 @@ If you're opening a [Universal Mach-O](https://en.wikipedia.org/wiki/Universal_b
 
 It's worth digging into Binary Ninja's [settings](../settings.md) and seeing what's available to tune, but if you ever want to change a setting for a single binary, you can Open (it) with Options. Go to File -> Open with Options, and any settings you change will apply to only that file.
 
-## Analyzing While Analyzing -->
+If you're used to waiting for IDA's auto-analysis to finish before working, you'll find that Binary Ninja is designed to remain responsive during analysis. A priority queue ensures that wherever you navigate is analyzed first, even while other analysis threads continue in the background.
 
 ## Importing Data
 
@@ -33,7 +33,9 @@ The following data will be imported:
 
 ## Keybindings
 
-To quickly set up IDA-like keybindings, open the Welcome Window from the Help menu (Help → Show Welcome Window) and select that you're migrating from IDA. The onboarding wizard will offer to apply IDA-style keybindings for you.
+To quickly set up IDA-like keybindings, open the First Run dialog from the Help menu (Help → First Run...) and select the IDA preset. The First Run dialog will apply IDA-style keybindings and UI settings for you. This dialog also appears automatically when you launch Binary Ninja for the first time.
+
+<!-- TODO: Add screenshot of the First Run dialog showing the IDA Pro preset selection -->
 
 Alternatively, you can manually replace your [keybindings](../index.md#custom-hotkeys) file in your [user folder](../index.md#user-folder) with [this file](../../files/ida-keybindings.json) to have the most seamless experience when changing to Binary Ninja.
 
@@ -123,26 +125,39 @@ File Operations Keybindings:
 
 ## UI Settings
 
-When you select "IDA-like" from the UI Settings dropdown in the welcome window, Binary Ninja will configure several settings to provide a more IDA-familiar experience:
+When you select the "IDA" preset in the First Run dialog, Binary Ninja will configure several settings to provide a more IDA-familiar experience:
 
 ### View Settings
-- **View Type**: Sets the default view to Single Function View in linear mode, losing Binary Ninja's normal ability to scroll infinitely through decompilation
+- **Preferred View**: Sets graph view as the default (like IDA), rather than Binary Ninja's default linear view
+- **Single Function View**: When in linear view, shows a single function at a time instead of scrolling through the entire binary
 - **Show Address**: Disabled in linear view for a cleaner interface
 
 ### Feature Map
-- **Location**: Moves the feature map to the top of the view
+- **Enabled**: The feature map is explicitly enabled
+- **Location**: Moves the feature map to the top of the view (similar to IDA's navigation bar)
 
 ### Sidebar Configuration
 - **Default Sidebars**: Shows only the Symbols sidebar by default (instead of both Symbols and Cross References)
-- **Modal Cross-References**: Sets cross-references to appear in a dialog window instead of the pinned sidebar
+
+### Cross-References
+- **Modal Cross-References**: Sets cross-references to appear in a dialog window instead of the pinned sidebar (matching IDA's xref dialog behavior)
 
 These settings can be changed at any time through Binary Ninja's settings menu (`[CTRL/⌘-,]`).
+
+### Preset Configuration Files
+
+The IDA preset keybindings and settings are stored in JSON configuration files that are easy to review and contribute to:
+
+- **Keybindings**: [`api/docs/files/ida-keybindings.json`](https://github.com/Vector35/binaryninja-api/tree/dev/docs/files/ida-keybindings.json)
+- **Settings**: [`api/docs/files/ida-settings.json`](https://github.com/Vector35/binaryninja-api/tree/dev/docs/files/ida-settings.json)
+
+If you notice a missing keybinding or a setting that would make the IDA experience more familiar, we welcome contributions via pull requests to the [binaryninja-api](https://github.com/Vector35/binaryninja-api) repository.
 
 ## Cross-References
 
 ![xref icon >](../../img/xref-icon.png "Xref Icon")
 
-The hotkey for Cross-References in Binary Ninja will match your IDA muscle-memory, however the look is similar to Ghidra with a pinned UI element containing tabs for references. To get the full IDA experience, change the [`ui.defaultXrefInterface`](../settings.md#ui.defaultXrefInterface) setting to `dialog`.
+The hotkey for Cross-References in Binary Ninja will match your IDA muscle-memory. When using the IDA preset from the First Run dialog, cross-references will open in a dialog window (like IDA). If you are not using the IDA preset, you can change this behavior with the [`ui.defaultXrefInterface`](../settings.md#ui.defaultXrefInterface) setting.
 
 ![xref icon >](../../img/xref-setting.png "Xref Icon")
 
@@ -156,7 +171,9 @@ Binary Ninja's layout is very similar to what you're used to in IDA, but there's
 
 ### Feature Map
 
-When using the welcome window settings, the [feature map](../index.md#feature-map) is moved to where you might be more comfortable. To move it back, right-click anywhere in it. That said, take notice that Binary Ninja's feature map is 2d: both directions you move your cursor changes the address in Binary Ninja. The exact number of bytes that fit across the width of the feature map scales to the size of the binary. You can disable this in the right-click menu by selecting "Linear Feature Map."
+<!-- TODO: Add screenshot of the feature map in its IDA-like position at the top of the view -->
+
+When using the First Run dialog settings, the [feature map](../index.md#feature-map) is moved to where you might be more comfortable. To move it back, right-click anywhere in it. That said, take notice that Binary Ninja's feature map is 2d: both directions you move your cursor changes the address in Binary Ninja. The exact number of bytes that fit across the width of the feature map scales to the size of the binary. You can disable this in the right-click menu by selecting "Linear Feature Map."
 
 We also have an entropy map if you need it. It's tucked away in [triage view](../index.md#triage-summary).
 
@@ -181,4 +198,4 @@ Check out the [tiling panes](../index.md#tiling-panes) docs for more information
 
 ---
 
-Don't forget to check out our [additional resources](../index.md#additional-resources)!
+Don't forget to check out our [additional resources](index.md#additional-resources)!

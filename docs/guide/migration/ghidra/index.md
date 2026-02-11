@@ -12,8 +12,7 @@ If you're opening a [Universal Mach-O](https://en.wikipedia.org/wiki/Universal_b
 
 It's worth digging into Binary Ninja's [settings](../../settings.md) and seeing what's available to tune, but if you ever want to change a setting for a single binary, you can Open (it) with Options. Go to File -> Open with Options, and any settings you change will apply to only that file.
 
-<!-- TODO : Can you analyze a file while Ghidra is running its analysis?
-## Analyzing While Analyzing -->
+If you're used to waiting for Ghidra's auto-analysis to finish before working, you'll find that Binary Ninja is designed to remain responsive during analysis. A priority queue ensures that wherever you navigate is analyzed first, even while other analysis threads continue in the background.
 
 ## Importing Data From Ghidra
 
@@ -25,13 +24,15 @@ See [the Ghidra export documentation](./ghidraexport.md)
 
 ## Keybindings
 
-To quickly set up Ghidra-like keybindings, open the Welcome Window from the Help menu (Help → Show Welcome Window) and select that you're migrating from Ghidra. The onboarding wizard will offer to apply Ghidra-style keybindings for you.
+To quickly set up Ghidra-like keybindings, open the First Run dialog from the Help menu (Help → First Run...) and select the Ghidra preset. The First Run dialog will apply Ghidra-style keybindings and UI settings for you. This dialog also appears automatically when you launch Binary Ninja for the first time.
+
+<!-- TODO: Add screenshot of the First Run dialog showing the Ghidra preset selection -->
 
 Alternatively, you can manually replace your [keybindings](../../index.md#custom-hotkeys) file in your [user folder](../../index.md#user-folder) with [this file](../../../files/ghidra-keybindings.json) to have the most seamless experience when changing to Binary Ninja.
 
 Binary Ninja's default keybindings are very different from Ghidra. Thankfully, [Binary Ninja's action system](https://binary.ninja/2024/02/15/command-palette.html) allows you to easily find actions and view the keybindings extremely easily. It'll also save you from digging through unfamiliar right-click menus while helping you learn any new keybindings. All actions can have their keybinding set, changed, or removed in the [keybindings menu](../../index.md#default-hotkeys).
 
-Some of the most useful default keybindings are as follows:
+Some of the most useful Ghidra-preset keybindings are as follows:
 
 <!-- BEGIN GENERATED KEYBINDING TABLES -->
 Analysis Keybindings:
@@ -107,10 +108,11 @@ File Operations Keybindings:
 
 ## UI Settings
 
-When you select "Ghidra-like" from the UI Settings dropdown in the welcome window, Binary Ninja will configure several settings to provide a more Ghidra-familiar experience:
+When you select the "Ghidra" preset in the First Run dialog, Binary Ninja will configure several settings to provide a more Ghidra-familiar experience:
 
 ### View Settings
-- **View Type**: Sets the default view to Single Function View in linear mode, similar to Ghidra's listing view
+- **Preferred View**: Sets linear view as the default (rather than graph view), similar to Ghidra's listing view
+- **Single Function View**: When in linear view, shows a single function at a time instead of scrolling through the entire binary
 - **Show Address**: Disabled in linear view for a cleaner interface
 
 ### Feature Map
@@ -125,20 +127,28 @@ When you select "Ghidra-like" from the UI Settings dropdown in the welcome windo
 
 These settings can be changed at any time through Binary Ninja's settings menu (`[CTRL/⌘-,]`). For a more complete Ghidra-like layout with split panes, see the Layout section below.
 
-## Layout
+### Preset Configuration Files
 
-Binary Ninja's layout is also a bit different from what you're used to in Ghidra, but thankfully Binary Ninja's UI is flexible enough to allow us to build something that will feel familiar.
+The Ghidra preset keybindings and settings are stored in JSON configuration files that are easy to review and contribute to:
+
+- **Keybindings**: [`api/docs/files/ghidra-keybindings.json`](https://github.com/Vector35/binaryninja-api/tree/dev/docs/files/ghidra-keybindings.json)
+- **Settings**: [`api/docs/files/ghidra-settings.json`](https://github.com/Vector35/binaryninja-api/tree/dev/docs/files/ghidra-settings.json)
+
+If you notice a missing keybinding or a setting that would make the Ghidra experience more familiar, we welcome contributions via pull requests to the [binaryninja-api](https://github.com/Vector35/binaryninja-api) repository.
 
 ## Cross-References
 
 ![xref icon >](../../../img/xref-icon.png "Xref Icon")
 
-The default behavior of cross-references to open in a tabbed reference UI element similar to how Ghidra does it, however the `X` hotkey is used by default (and can be changed in the [keybindings UI](index.md#custom-hotkeys)).
+The default behavior of cross-references is to open in a tabbed reference UI element similar to how Ghidra does it, however the `X` hotkey is used by default (and can be changed in the [keybindings UI](../../index.md#custom-hotkeys)).
 
+## Theme
 
-### Theme
+This doesn't exactly have to do with your layout, but it can go a long way towards making the interface feel a bit more familiar. We have an expansive list of [community themes](https://github.com/Vector35/community-themes), and [a guide](../../../dev/themes.md) and a [blog post](https://binary.ninja/2021/07/08/creating-great-themes.html) on how to make your own. The built-in "Classic" theme should feel nostalgic, but if you're looking for a light theme that's slightly easier on the eyes, try out Summer or Solarized Light.
 
-This doesn't exactly have to do with your layout, but it go a long way towards making the interface feel a bit more familiar. We have an expansive list of [community themes](https://github.com/Vector35/community-themes), and [a guide](../../../dev/themes.md) and a [blog post](https://binary.ninja/2021/07/08/creating-great-themes.html) on how to make your own. The built-in "Classic" theme should feel nostalgic, but if you're looking for a light theme that's slightly easier on the eyes, try out Summer or Solarized Light.
+## Layout
+
+Binary Ninja's layout is also a bit different from what you're used to in Ghidra, but thankfully Binary Ninja's UI is flexible enough to allow us to build something that will feel familiar.
 
 ### Sidebars
 
@@ -156,9 +166,11 @@ If you want to match how Ghidra has its types showing on the bottom, you can sim
 
 #### Main Area
 
+<!-- TODO: Add screenshot of the Ghidra-like layout with linear disassembly on the left and single-function decompilation on the right -->
+
 Time for the main event!
 
-Ghidra shows you a linear view on the left, and single-function-at-a-time decompilation on the right. We already gave you linear decompilation of the whole Binary here by default, so there are three last things to do:
+Ghidra shows you a linear view on the left, and single-function-at-a-time decompilation on the right. We already gave you linear decompilation of the whole binary here by default, so there are three last things to do:
 
 1. Create a new pane by pressing the icon in the top right that looks like a rectangle with a line through it. The two panes are now synced by address, as you’d expect.
 2. In the left pane, find the dropdown that says "High Level IL", and switch down to disassembly. You should now have linear disassembly on the left, and linear decompilation on the right.
@@ -181,4 +193,4 @@ Now that you've done all this hard work to make the perfect layout, it would be 
 
 ---
 
-Don't forget to check out our [additional resources](index.md#additional-resources)!
+Don't forget to check out our [additional resources](../index.md#additional-resources)!

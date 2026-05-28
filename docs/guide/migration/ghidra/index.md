@@ -24,7 +24,7 @@ See [the Ghidra export documentation](./ghidraexport.md)
 
 ## Keybindings
 
-To quickly set up Ghidra-like keybindings, open the First Run dialog from the Help menu (Help → First Run...) and select the Ghidra preset. The First Run dialog will apply Ghidra-style keybindings and UI settings for you. This dialog also appears automatically when you launch Binary Ninja for the first time.
+To quickly set up Ghidra-like keybindings, open the First Run dialog from the Help menu (Help → First Run...) and select the Ghidra preset. The First Run dialog will apply Ghidra-style keybindings and UI settings for you. It appears automatically the first time you launch Binary Ninja, but it is always available from Help → First Run... — so if you dismissed it initially, or later want to (re)apply the Ghidra preset or switch between presets, you can change your keybindings and settings from there at any time.
 
 <!-- TODO: Add screenshot of the First Run dialog showing the Ghidra preset selection -->
 
@@ -32,79 +32,7 @@ Alternatively, you can manually replace your [keybindings](../../index.md#custom
 
 Binary Ninja's default keybindings are very different from Ghidra. Thankfully, [Binary Ninja's action system](https://binary.ninja/2024/02/15/command-palette.html) allows you to easily find actions and view the keybindings extremely easily. It'll also save you from digging through unfamiliar right-click menus while helping you learn any new keybindings. All actions can have their keybinding set, changed, or removed in the [keybindings menu](../../index.md#default-hotkeys).
 
-Some of the most useful Ghidra-preset keybindings are as follows:
-
-<!-- BEGIN GENERATED KEYBINDING TABLES -->
-Analysis Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Change Type | `Ctrl/Cmd+L` |
-| Copy Address | `Ctrl/Cmd+Shift+C` |
-| Edit Function Properties | `Shift+E` |
-| Enter Comment | `;` |
-| Make Function | `F` |
-| Edit Current Line (Patch) | `E` |
-| Redo | `Ctrl/Cmd+Shift+Z` |
-| Rename Type | `L` |
-| Rename | `L` |
-| Show Cross References | `X` |
-| Undefine | `C` |
-| Undefine Type | `C` |
-| Undo | `Ctrl/Cmd+Z` |
-
-Navigation Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Go to Address | `G` |
-| Navigate Back | `Alt+Left` |
-| Navigate Forward | `Alt+Right` |
-| Navigate to Selection | `Enter` |
-
-Types Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Display as Character | `R` |
-| Display as Enum | `M` |
-| Cycle Float Size | `Shift+F` |
-| Cycle Integer Size | `B` |
-| Invert Integer Sign | `-` |
-| Make Array | `[` |
-| Make C String | `'` |
-| Make Pointer | `P` |
-
-Views & Panels Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Focus Log | `~` |
-| Keybindings | `F4` |
-| Toggle Decompiled View | `F5` |
-| Toggle Disassembly View | `Ctrl/Cmd+E` |
-| View in Hex Editor | `H` |
-| View in Linear Disassembly | `Space` |
-| Zoom to Fit | `W` |
-
-Search Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Find | `S` |
-
-File Operations Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Close Pane | `Ctrl/Cmd+W` |
-| New Binary Data | `Ctrl/Cmd+Shift+N` |
-| New Project | `Ctrl/Cmd+N` |
-| New Window | `Ctrl/Cmd+Alt+N` |
-| Import Files | `Ctrl/Cmd+I` |
-| Import Folder | `Ctrl/Cmd+Shift+I` |
-| Save Contents As | `O` |
-<!-- END GENERATED KEYBINDING TABLES -->
+For the complete list of shortcuts the Ghidra preset configures, see [`ghidra-keybindings.json`](../../../files/ghidra-keybindings.json).
 
 ## UI Settings
 

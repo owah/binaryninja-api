@@ -33,7 +33,7 @@ The following data will be imported:
 
 ## Keybindings
 
-To quickly set up IDA-like keybindings, open the First Run dialog from the Help menu (Help → First Run...) and select the IDA preset. The First Run dialog will apply IDA-style keybindings and UI settings for you. This dialog also appears automatically when you launch Binary Ninja for the first time.
+To quickly set up IDA-like keybindings, open the First Run dialog from the Help menu (Help → First Run...) and select the IDA preset. The First Run dialog will apply IDA-style keybindings and UI settings for you. It appears automatically the first time you launch Binary Ninja, but it is always available from Help → First Run... — so if you dismissed it initially, or later want to (re)apply the IDA preset or switch between presets, you can change your keybindings and settings from there at any time.
 
 <!-- TODO: Add screenshot of the First Run dialog showing the IDA Pro preset selection -->
 
@@ -41,87 +41,16 @@ Alternatively, you can manually replace your [keybindings](../index.md#custom-ho
 
 Most of the default keybindings you're used to are the same. Any "actions" (renaming, setting types, opening cross-references, etc) you might want to perform can be found in the [command palette](../index.md#command-palette), which will save you from digging through unfamiliar right-click menus and help you learn any new keybindings. You can even [add your own actions](https://binary.ninja/2024/02/15/command-palette.html#how-do-i-register-actions-with-the-command-palette-myself) with ease. All actions can have their keybinding set, changed, or removed in the [keybindings menu](../index.md#default-hotkeys).
 
+For the complete list of shortcuts the IDA preset applies, see [`ida-keybindings.json`](../../files/ida-keybindings.json).
+
 Some major exceptions are:
 
-<!-- BEGIN GENERATED KEYBINDING TABLES -->
-Analysis Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Add Bookmark | `Ctrl/Cmd+M` |
-| Add Tag | `Alt+M` |
-| Assemble | `Ctrl/Cmd+Alt+A` |
-| Change Type | `Y` |
-| Edit Function Properties | `Shift+E` |
-| Enter Comment | `:` |
-| Focus Cross References | `Shift+X` |
-| Make Function | `P` |
-| Convert to NOP | `Ctrl/Cmd+Alt+N` |
-| Pin Cross References | `X` |
-| Rename | `N` |
-| Undefine | `U` |
-
-Navigation Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Go to Address | `G` |
-| Go to Entry Point | `Ctrl/Cmd+E` |
-| Navigate Back | `Escape` |
-| Navigate Forward | `Ctrl/Cmd+Enter` |
-
-Types Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Display as Hex | `H` |
-| Cycle Integer Size | `B` |
-| Make C String | `A` |
-| Make Pointer | `O` |
-
-Views & Panels Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Focus Log | `~` |
-| Focus Memory Map | `Shift+F7` |
-| Focus Stack Trace | `Ctrl/Cmd+Alt+S` |
-| Focus Strings | `Shift+F12` |
-| Focus Symbols | `Shift+F3` |
-| Focus Tags | `Alt+F11` |
-| Focus Types | `Shift+F9` |
-| Toggle Decompiled View | `F5` |
-| View in Graph | `Space` |
-| View in Hex Editor | `Shift+F4` |
-| View in Linear Disassembly | `Space` |
-
-Search Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Command Palette | `Ctrl/Cmd+P` |
-| Find Next | `Ctrl/Cmd+T` |
-| Find | `Alt+T` |
-
-Debugger Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Kill | `Ctrl/Cmd+F2` |
-| Resume | `F9` |
-| Run To Here | `F4` |
-| Step Into | `F7` |
-| Step Over | `F8` |
-| Step Return | `Ctrl/Cmd+F7` |
-| Toggle Breakpoint | `F2` |
-
-File Operations Keybindings:
-
-| Action | Shortcut |
-| --- | --- |
-| Close Pane | `Ctrl/Cmd+W` |
-| Import Header File | `Ctrl/Cmd+F9` |
-<!-- END GENERATED KEYBINDING TABLES -->
+- Save is `[CTRL/⌘-S]`.
+- The "subviews" keybindings are:
+    - `T` for Types
+    - `[SHIFT-F4]` to toggle to/from Hex View
+    - `[TAB]` to toggle to/from disassembly
+- `0` toggles integer display between hexadecimal and decimal, which is `H` in IDA
 
 ## UI Settings
 

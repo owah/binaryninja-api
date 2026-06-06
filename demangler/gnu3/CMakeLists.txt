@@ -6,6 +6,8 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
 	*.cpp
 	*.c
 	*.h
+	../demangled_template_simplifier.cpp
+	../demangled_template_simplifier.h
 	../demangled_type_node.cpp
 	../demangled_type_node.h)
 

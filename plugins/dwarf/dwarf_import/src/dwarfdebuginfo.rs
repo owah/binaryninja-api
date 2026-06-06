@@ -24,7 +24,6 @@ use binaryninja::{
     platform::Platform,
     rc::*,
     symbol::SymbolType,
-    template_simplifier::simplify_str_to_fqn,
     types::{FunctionParameter, Type},
     variable::NamedVariableWithType,
 };
@@ -37,6 +36,37 @@ use indexmap::{map::Values, IndexMap};
 use std::{cmp::Ordering, collections::HashMap, hash::Hash};
 
 pub(crate) type TypeUID = usize;
+
+fn qualified_name_segment_count(name: &str) -> usize {
+    let mut count = 1;
+    let mut angle_depth = 0;
+    let mut paren_depth = 0;
+    let mut bracket_depth = 0;
+    let bytes = name.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'<' => angle_depth += 1,
+            b'>' if angle_depth > 0 => angle_depth -= 1,
+            b'(' => paren_depth += 1,
+            b')' if paren_depth > 0 => paren_depth -= 1,
+            b'[' => bracket_depth += 1,
+            b']' if bracket_depth > 0 => bracket_depth -= 1,
+            b':' if index + 1 < bytes.len()
+                && bytes[index + 1] == b':'
+                && angle_depth == 0
+                && paren_depth == 0
+                && bracket_depth == 0 =>
+            {
+                count += 1;
+                index += 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    count
+}
 
 /////////////////////////
 // FunctionInfoBuilder
@@ -733,10 +763,8 @@ impl DebugInfoBuilder {
                         let symbol_full_name = symbol.full_name();
 
                         // If our name has fewer namespaces than the existing name, assume we lost the namespace info
-                        if simplify_str_to_fqn(func_full_name, true).items.len()
-                            < simplify_str_to_fqn(symbol_full_name.clone(), true)
-                                .items
-                                .len()
+                        if qualified_name_segment_count(func_full_name)
+                            < qualified_name_segment_count(&symbol_full_name.to_string_lossy())
                         {
                             func.full_name = Some(symbol_full_name.to_string_lossy().to_string());
                         }

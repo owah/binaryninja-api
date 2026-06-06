@@ -82,7 +82,6 @@ pub mod string;
 pub mod string_detection;
 pub mod symbol;
 pub mod tags;
-pub mod template_simplifier;
 pub mod tracing;
 pub mod types;
 pub mod update;

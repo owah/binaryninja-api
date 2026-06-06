@@ -7,7 +7,9 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
 	*.c
 	*.h
 	../demangled_type_node.cpp
-	../demangled_type_node.h)
+	../demangled_type_node.h
+	../demangled_template_simplifier.cpp
+	../demangled_template_simplifier.h)
 
 if(DEMO)
 	add_library(${PROJECT_NAME} STATIC ${SOURCES})

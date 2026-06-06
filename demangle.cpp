@@ -110,35 +110,6 @@ namespace BinaryNinja {
 	}
 
 
-	string SimplifyToString(const string& input)
-	{
-		return BNRustSimplifyStrToStr(input.c_str());
-	}
-
-
-	string SimplifyToString(const QualifiedName& input)
-	{
-		return BNRustSimplifyStrToStr(input.GetString().c_str());
-	}
-
-
-	QualifiedName SimplifyToQualifiedName(const string& input, bool simplify)
-	{
-		BNQualifiedName name = BNRustSimplifyStrToFQN(input.c_str(), simplify);
-		QualifiedName result = QualifiedName::FromAPIObject(&name);
-		BNFreeQualifiedName(&name);
-		return result;
-	}
-
-
-	QualifiedName SimplifyToQualifiedName(const QualifiedName& input)
-	{
-		BNQualifiedName name = BNRustSimplifyStrToFQN(input.GetString().c_str(), true);
-		QualifiedName result = QualifiedName::FromAPIObject(&name);
-		BNFreeQualifiedName(&name);
-		return result;
-	}
-
 	Demangler::Demangler(const std::string& name): m_nameForRegister(name)
 	{
 	}
@@ -155,7 +126,7 @@ namespace BinaryNinja {
 	}
 
 	bool Demangler::DemangleCallback(void* ctxt, BNArchitecture* arch, const char* name, BNType** outType,
-	                                 BNQualifiedName* outVarName, BNBinaryView* view)
+	                                 BNQualifiedName* outVarName, BNBinaryView* view, bool simplify)
 	{
 		Demangler* demangler = (Demangler*)ctxt;
 
@@ -164,7 +135,7 @@ namespace BinaryNinja {
 
 		Ref<Type> apiType;
 		QualifiedName apiVarName;
-		bool success = demangler->Demangle(apiArch, name, apiType, apiVarName, apiView);
+		bool success = demangler->Demangle(apiArch, name, apiType, apiVarName, apiView, simplify);
 		if (!success)
 			return false;
 
@@ -239,12 +210,12 @@ namespace BinaryNinja {
 	}
 
 	bool CoreDemangler::Demangle(Ref<Architecture> arch, const std::string& name, Ref<Type>& outType,
-		QualifiedName& outVarName, Ref<BinaryView> view)
+		QualifiedName& outVarName, Ref<BinaryView> view, bool simplify)
 	{
 		BNType* apiType = nullptr;
 		BNQualifiedName apiVarName;
-		bool success = BNDemanglerDemangle(
-			m_object, arch->m_object, name.c_str(), &apiType, &apiVarName, view ? view->m_object : nullptr);
+		bool success = BNDemanglerDemangleWithOptions(
+			m_object, arch->m_object, name.c_str(), &apiType, &apiVarName, view ? view->m_object : nullptr, simplify);
 
 		if (!success)
 			return false;

@@ -91,11 +91,18 @@ def demangle_generic(
 	if not core.BNDemangleGeneric(arch.handle, mangled_name, out_type, out_var_name, view_handle, simplify):
 		return None, [mangled_name]
 
+	try:
+		result_var_name = types.QualifiedName._from_core_struct(out_var_name)
+	except UnicodeDecodeError:
+		core.BNFreeQualifiedName(out_var_name)
+		if out_type:
+			core.BNFreeType(out_type)
+		return None, [mangled_name]
+
+	core.BNFreeQualifiedName(out_var_name)
 	result_type = None
 	if out_type:
 		result_type = types.Type.create(handle=out_type)
-	result_var_name = types.QualifiedName._from_core_struct(out_var_name)
-	core.BNFreeQualifiedName(out_var_name)
 	return result_type, result_var_name.name
 
 
@@ -226,62 +233,6 @@ def demangle_gnu3(arch, mangled_name: str, options: Optional[Union[bool, binaryv
 	return (None, mangled_name)
 
 
-def simplify_name_to_string(input_name: Union[str, types.QualifiedName]):
-	"""
-	``simplify_name_to_string`` simplifies a templated C++ name with default arguments and returns a string
-
-	:param input_name: String or qualified name to be simplified
-	:type input_name: Union[str, QualifiedName]
-	:return: simplified name (or original name if simplifier fails/cannot simplify)
-	:rtype: str
-	:Example:
-
-		>>> demangle.simplify_name_to_string("std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >")
-		'std::string'
-		>>>
-	"""
-	result = None
-	if isinstance(input_name, str):
-		result = core.BNRustSimplifyStrToStr(input_name)
-	elif isinstance(input_name, types.QualifiedName):
-		result = core.BNRustSimplifyStrToStr(str(input_name))
-	else:
-		raise TypeError("Parameter must be of type `str` or `types.QualifiedName`")
-	return result
-
-
-def simplify_name_to_qualified_name(input_name: Union[str, types.QualifiedName], simplify: bool = True):
-	"""
-	``simplify_name_to_qualified_name`` simplifies a templated C++ name with default arguments and returns a qualified name. This can also tokenize a string to a qualified name with/without simplifying it
-
-	:param input_name: String or qualified name to be simplified
-	:type input_name: Union[str, QualifiedName]
-	:param bool simplify: (optional) Whether to simplify input string (no effect if given a qualified name; will always simplify)
-	:return: simplified name (or one-element array containing the input if simplifier fails/cannot simplify)
-	:rtype: QualifiedName
-	:Example:
-
-		>>> demangle.simplify_name_to_qualified_name(QualifiedName(["std", "__cxx11", "basic_string<wchar, std::char_traits<wchar>, std::allocator<wchar> >"]), True)
-		'std::wstring'
-		>>>
-	"""
-	name = None
-	if isinstance(input_name, str):
-		name = core.BNRustSimplifyStrToFQN(input_name, simplify)
-		assert name is not None, "core.BNRustSimplifyStrToFQN returned None"
-	elif isinstance(input_name, types.QualifiedName):
-		name = core.BNRustSimplifyStrToFQN(str(input_name), True)
-		assert name is not None, "core.BNRustSimplifyStrToFQN returned None"
-	else:
-		raise TypeError("Parameter must be of type `str` or `types.QualifiedName`")
-
-	result = types.QualifiedName._from_core_struct(name)
-	core.BNFreeQualifiedName(name)
-	if len(result) == 0:
-		return None
-	return result
-
-
 class _DemanglerMetaclass(type):
 	def __iter__(self):
 		binaryninja._init_plugins()
@@ -392,14 +343,14 @@ class Demangler(metaclass=_DemanglerMetaclass):
 			log_error_for_exception("Unhandled Python exception in Demangler._is_mangled_string")
 			return False
 
-	def _demangle(self, ctxt, arch, name, out_type, out_var_name, view):
+	def _demangle(self, ctxt, arch, name, out_type, out_var_name, view, simplify):
 		try:
 			api_arch = CoreArchitecture._from_cache(arch)
 			api_view = None
 			if view is not None:
 				api_view = binaryview.BinaryView(handle=core.BNNewViewReference(view))
 
-			result = self.demangle(api_arch, core.pyNativeStr(name), api_view)
+			result = self.demangle(api_arch, core.pyNativeStr(name), api_view, simplify)
 			if result is None:
 				return False
 			type, var_name = result
@@ -443,7 +394,8 @@ class Demangler(metaclass=_DemanglerMetaclass):
 			self,
 			arch: Architecture,
 			name: str,
-			view: Optional['binaryview.BinaryView'] = None
+			view: Optional['binaryview.BinaryView'] = None,
+			simplify: bool = False
 	) -> Optional[Tuple['types.Type', 'types.QualifiedName']]:
 		"""
 		Demangle a raw name into a Type and QualifiedName.
@@ -468,6 +420,7 @@ class Demangler(metaclass=_DemanglerMetaclass):
 		:param arch: Architecture for context in which the name exists, eg for pointer sizes
 		:param name: Raw mangled name
 		:param view: (Optional) BinaryView context in which the name exists, eg for type lookup
+		:param simplify: Whether to simplify templates while demangling
 		:return: Tuple of (Type, Name) if successful, None if not. Type may be None if only
 		         a demangled name can be recovered from the raw name.
 		"""
@@ -479,7 +432,8 @@ class CoreDemangler(Demangler):
 	def is_mangled_string(self, name: str) -> bool:
 		return core.BNIsDemanglerMangledName(self.handle, name)
 
-	def demangle(self, arch: Architecture, name: str, view: Optional['binaryview.BinaryView'] = None) -> Optional[Tuple[Optional['types.Type'], 'types.QualifiedName']]:
+	def demangle(self, arch: Architecture, name: str, view: Optional['binaryview.BinaryView'] = None,
+		simplify: bool = False) -> Optional[Tuple[Optional['types.Type'], 'types.QualifiedName']]:
 		out_type = ctypes.POINTER(core.BNType)()
 		out_var_name = core.BNQualifiedName()
 
@@ -487,7 +441,8 @@ class CoreDemangler(Demangler):
 		if view is not None:
 			view_handle = view.handle
 
-		if not core.BNDemanglerDemangle(self.handle, arch.handle, name, out_type, out_var_name, view_handle):
+		if not core.BNDemanglerDemangleWithOptions(
+			self.handle, arch.handle, name, out_type, out_var_name, view_handle, simplify):
 			return None
 
 		result_type = None

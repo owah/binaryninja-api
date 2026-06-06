@@ -16,6 +16,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 
 #include "demangle_msvc.h"
+#include "demangler/demangled_template_simplifier.h"
 #ifdef BINARYNINJACORE_LIBRARY
 #include "unicode.h"
 #endif
@@ -2610,7 +2611,7 @@ Demangle::DemangleContext Demangle::DemangleSymbol(BackrefList& backrefList)
 	return finishContext();
 }
 
-std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(BinaryView* view)
+std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(BinaryView* view, bool simplifyTemplates)
 {
 	DemangleContext context = DemangleSymbol();
 	if (m_reader.Length() != 0)
@@ -2646,12 +2647,18 @@ std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(BinaryView* view)
 	if (!platform)
 		platform = arch->GetStandalonePlatform();
 
+	if (simplifyTemplates)
+	{
+		DemangledTemplateSimplifier::SimplifyTypeNodeInPlace(context.type);
+		DemangledTemplateSimplifier::SimplifyNameSegmentsInPlace(context.name);
+	}
+
 	return {context.type.Finalize(platform.GetPtr()), QualifiedName(FinalizeNameList(context.name))};
 }
 
-std::pair<Ref<Type>, QualifiedName> Demangle::Finalize()
+std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(bool simplifyTemplates)
 {
-	return Finalize(m_view.GetPtr());
+	return Finalize(m_view.GetPtr(), simplifyTemplates);
 }
 
 template <typename DemangleBody>
@@ -2684,26 +2691,44 @@ static bool DemangleMSImpl(const _STD_STRING& mangledName, Ref<Type>& outType, Q
 bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
                           QualifiedName& outVarName, const Ref<BinaryView>& view)
 {
+	return DemangleMS(arch, mangledName, outType, outVarName, view, false);
+}
+
+bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
+                          QualifiedName& outVarName, const Ref<BinaryView>& view, bool simplifyTemplates)
+{
 	if (view)
 	{
 		return DemangleMSImpl(mangledName, outType, outVarName, [&]() {
 			Demangle demangle(arch, mangledName);
-			return demangle.Finalize(view.GetPtr());
+			return demangle.Finalize(view.GetPtr(), simplifyTemplates);
 		});
 	}
-	return DemangleMS(arch, mangledName, outType, outVarName);
+	return DemangleMS(arch, mangledName, outType, outVarName, simplifyTemplates);
 }
 
 bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
                           QualifiedName& outVarName, BinaryView* view)
 {
+	return DemangleMS(arch, mangledName, outType, outVarName, view, false);
+}
+
+bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
+                          QualifiedName& outVarName, BinaryView* view, bool simplifyTemplates)
+{
 	if (view)
-		return DemangleMS(arch, mangledName, outType, outVarName, Ref<BinaryView>(view));
-	return DemangleMS(arch, mangledName, outType, outVarName);
+		return DemangleMS(arch, mangledName, outType, outVarName, Ref<BinaryView>(view), simplifyTemplates);
+	return DemangleMS(arch, mangledName, outType, outVarName, simplifyTemplates);
 }
 
 bool Demangle::DemangleMS(Platform* platform, const _STD_STRING& mangledName, Ref<Type>& outType,
                           QualifiedName& outVarName)
+{
+	return DemangleMS(platform, mangledName, outType, outVarName, false);
+}
+
+bool Demangle::DemangleMS(Platform* platform, const _STD_STRING& mangledName, Ref<Type>& outType,
+                          QualifiedName& outVarName, bool simplifyTemplates)
 {
 	outType = nullptr;
 	if (!platform)
@@ -2711,17 +2736,23 @@ bool Demangle::DemangleMS(Platform* platform, const _STD_STRING& mangledName, Re
 
 	return DemangleMSImpl(mangledName, outType, outVarName, [&]() {
 		Demangle demangle(Ref<Platform>(platform), mangledName);
-		return demangle.Finalize();
+		return demangle.Finalize(simplifyTemplates);
 	});
 }
 
 bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
                           QualifiedName& outVarName)
 {
+	return DemangleMS(arch, mangledName, outType, outVarName, false);
+}
+
+bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
+                          QualifiedName& outVarName, bool simplifyTemplates)
+{
 	return DemangleMSImpl(mangledName, outType, outVarName, [&]() {
 		thread_local Demangle demangle(arch, mangledName);
 		demangle.Reset(arch, mangledName);
-		return demangle.Finalize();
+		return demangle.Finalize(simplifyTemplates);
 	});
 }
 
@@ -2729,20 +2760,32 @@ bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Re
 bool Demangle::DemangleMS(const _STD_STRING& mangledName, Ref<Type>& outType,
                           QualifiedName& outVarName, const Ref<BinaryView>& view)
 {
+	return DemangleMS(mangledName, outType, outVarName, view, false);
+}
+
+bool Demangle::DemangleMS(const _STD_STRING& mangledName, Ref<Type>& outType,
+                          QualifiedName& outVarName, const Ref<BinaryView>& view, bool simplifyTemplates)
+{
 	return DemangleMSImpl(mangledName, outType, outVarName, [&]() {
 		// Can't use thread_local here — BinaryView overload needs platform/view state
 		Demangle demangle(view, mangledName);
-		return demangle.Finalize();
+		return demangle.Finalize(simplifyTemplates);
 	});
 }
 
 bool Demangle::DemangleMS(const _STD_STRING& mangledName, Ref<Type>& outType,
                           QualifiedName& outVarName, BinaryView* view)
 {
+	return DemangleMS(mangledName, outType, outVarName, view, false);
+}
+
+bool Demangle::DemangleMS(const _STD_STRING& mangledName, Ref<Type>& outType,
+                          QualifiedName& outVarName, BinaryView* view, bool simplifyTemplates)
+{
 	outType = nullptr;
 	if (!view)
 		return false;
-	return DemangleMS(mangledName, outType, outVarName, Ref<BinaryView>(view));
+	return DemangleMS(mangledName, outType, outVarName, Ref<BinaryView>(view), simplifyTemplates);
 }
 
 
@@ -2764,13 +2807,29 @@ public:
 	                      BinaryView* view) override
 #else
 	virtual bool Demangle(Ref<Architecture> arch, const _STD_STRING& name, Ref<Type>& outType, QualifiedName& outVarName,
-	                      Ref<BinaryView> view) override
+	                      Ref<BinaryView> view, bool simplify) override
 #endif
 	{
+#ifdef BINARYNINJACORE_LIBRARY
 		if (view)
 			return Demangle::DemangleMS(arch, name, outType, outVarName, view);
 		return Demangle::DemangleMS(arch, name, outType, outVarName);
+#else
+		if (view)
+			return Demangle::DemangleMS(arch, name, outType, outVarName, view, simplify);
+		return Demangle::DemangleMS(arch, name, outType, outVarName, simplify);
+#endif
 	}
+
+#ifdef BINARYNINJACORE_LIBRARY
+	bool DemangleWithOptions(Architecture* arch, const _STD_STRING& name, Ref<Type>& outType,
+		QualifiedName& outVarName, BinaryView* view, bool simplify) override
+	{
+		if (view)
+			return Demangle::DemangleMS(arch, name, outType, outVarName, view, simplify);
+		return Demangle::DemangleMS(arch, name, outType, outVarName, simplify);
+	}
+#endif
 };
 
 extern "C"

@@ -15,6 +15,7 @@
 #pragma once
 #include <stdexcept>
 #include <exception>
+#include <utility>
 
 // XXX: Compiled directly into the core for performance reasons
 // Will still work fine compiled independently, just at about a
@@ -94,7 +95,28 @@ private:
 class DemangleGNU3
 {
 	using ParamList = _STD_VECTOR<DemangledTypeNode::Param>;
-	using NodeRef = DemangledTypeNode::NodeRef;
+	using TypeNodeRef = DemangledTypeNode::NodeRef;
+	struct NodeRef
+	{
+		TypeNodeRef type;
+		bool emptyTemplatePack = false;
+
+		NodeRef() = default;
+		NodeRef(std::nullptr_t) {}
+		NodeRef(TypeNodeRef typeRef): type(std::move(typeRef)) {}
+
+		static NodeRef EmptyTemplatePack()
+		{
+			NodeRef ref;
+			ref.emptyTemplatePack = true;
+			return ref;
+		}
+
+		explicit operator bool() const { return type != nullptr; }
+		DemangledTypeNode& operator*() const { return *type; }
+		DemangledTypeNode* operator->() const { return type.get(); }
+		operator TypeNodeRef() const { return type; }
+	};
 	using NodeRefList = _STD_VECTOR<NodeRef>;
 
 	DemangleGNU3Reader m_reader;
@@ -149,6 +171,9 @@ class DemangleGNU3
 	_STD_STRING DemangleNumberAsString();
 	_STD_STRING DemangleExpression();
 	_STD_STRING DemanglePrimaryExpression();
+	NodeRef DemangleTemplateSubstitutionEntry(NodeRef* outTypeRef = nullptr);
+	bool TryDemangleTemplateParamPackExpansion(DemangledTypeNode& type, bool& emptyPack);
+	bool TryDemangleTemplateParamExpressionPackExpansion(_STD_STRING& expr, bool& emptyPack);
 	DemangledTypeNode DemangleName();
 	DemangledTypeNode DemangleLocalName();
 
@@ -164,9 +189,11 @@ class DemangleGNU3
 	NodeRef PushTemplateType(NodeRef type);
 	NodeRef PushTemplateType(const DemangledTypeNode& type);
 	NodeRef PushTemplateType(DemangledTypeNode&& type);
+	void PushEmptyTemplateParamSubstitution();
 	NodeRef PushType(NodeRef type);
 	NodeRef PushType(const DemangledTypeNode& type);
 	NodeRef PushType(DemangledTypeNode&& type);
+	void PushEmptyTypeSubstitution();
 	NodeRef GetTypeRef(size_t ref);
 	const DemangledTypeNode& GetType(size_t ref);
 
@@ -186,7 +213,7 @@ class DemangleGNU3
 public:
 	DemangleGNU3(BN::Platform* platform, const _STD_STRING& mangledName);
 	void Reset(BN::Platform* platform, const _STD_STRING& mangledName);
-	DemangledTypeNode DemangleSymbol(StringList& varName);
+	DemangledTypeNode DemangleSymbol(StringList& varName, bool simplifyTemplates = false);
 };
 
 
@@ -196,6 +223,8 @@ public:
 	static bool IsGNU3MangledString(const _STD_STRING& name);
 	static bool DemangleGlobalHeader(_STD_STRING& name, _STD_STRING& header);
 
-	static bool DemangleStringGNU3(BN::Platform* platform, const _STD_STRING& name, BN::Ref<BN::Type>& outType, BN::QualifiedName& outVarName);
-	static bool DemangleStringGNU3(BN::Architecture* arch, const _STD_STRING& name, BN::Ref<BN::Type>& outType, BN::QualifiedName& outVarName);
+	static bool DemangleStringGNU3(BN::Platform* platform, const _STD_STRING& name, BN::Ref<BN::Type>& outType,
+		BN::QualifiedName& outVarName, bool simplifyTemplates = false);
+	static bool DemangleStringGNU3(BN::Architecture* arch, const _STD_STRING& name, BN::Ref<BN::Type>& outType,
+		BN::QualifiedName& outVarName, bool simplifyTemplates = false);
 };

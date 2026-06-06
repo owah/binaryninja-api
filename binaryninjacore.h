@@ -3902,7 +3902,7 @@ extern "C"
 		void* context;
 		bool (*isMangledString)(void* ctxt, const char* name);
 		bool (*demangle)(void* ctxt, BNArchitecture* arch, const char* name, BNType** outType,
-			BNQualifiedName* outVarName, BNBinaryView* view);
+			BNQualifiedName* outVarName, BNBinaryView* view, bool simplify);
 		void (*freeVarName)(void* ctxt, BNQualifiedName* name);
 	} BNDemanglerCallbacks;
 
@@ -8272,6 +8272,8 @@ extern "C"
 	BINARYNINJACOREAPI void BNPromoteDemangler(BNDemangler* demangler);
 
 	BINARYNINJACOREAPI bool BNIsDemanglerMangledName(BNDemangler* demangler, const char* name);
+	BINARYNINJACOREAPI bool BNDemanglerDemangleWithOptions(BNDemangler* demangler, BNArchitecture* arch,
+	    const char* name, BNType** outType, BNQualifiedName* outVarName, BNBinaryView* view, bool simplify);
 	BINARYNINJACOREAPI bool BNDemanglerDemangle(BNDemangler* demangler, BNArchitecture* arch, const char* name,
 	    BNType** outType, BNQualifiedName* outVarName, BNBinaryView* view);
 	BINARYNINJACOREAPI bool BNDemangleGeneric(BNArchitecture* arch, const char* name,
@@ -8635,9 +8637,6 @@ extern "C"
 	BINARYNINJACOREAPI void BNFreeMemoryUsageInfo(BNMemoryUsageInfo* info, size_t count);
 
 	BINARYNINJACOREAPI uint32_t BNGetAddressRenderedWidth(uint64_t addr);
-
-	BINARYNINJACOREAPI BNQualifiedName BNRustSimplifyStrToFQN(const char* const, bool);
-	BINARYNINJACOREAPI char* BNRustSimplifyStrToStr(const char* const);
 
 	BINARYNINJACOREAPI BNDebugInfoParser* BNRegisterDebugInfoParser(const char* name,
 		bool (*isValid)(void*, BNBinaryView*),

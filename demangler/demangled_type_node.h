@@ -41,7 +41,9 @@
 #endif
 
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <string_view>
 #include <variant>
 
 #ifdef BINARYNINJACORE_LIBRARY
@@ -67,6 +69,8 @@ public:
 
 	DemangledNamePart();
 	explicit DemangledNamePart(_STD_STRING base);
+	explicit DemangledNamePart(const char* base);
+	explicit DemangledNamePart(std::string_view base);
 	DemangledNamePart(_STD_STRING base, std::shared_ptr<DemangledTypeNode> baseTypeSuffix);
 	DemangledNamePart(_STD_STRING base, _STD_VECTOR<DemangledTypeNodeParam> templateArgs,
 		bool spaceAfterComma = false);
@@ -75,8 +79,10 @@ public:
 	void SetBase(_STD_STRING base) { m_base = std::move(base); }
 	void AppendBase(const _STD_STRING& suffix) { m_base += suffix; }
 	bool HasTemplateArguments() const { return m_hasTemplateArgs || !m_templateArgs.empty(); }
+	const _STD_VECTOR<DemangledTypeNodeParam>& GetTemplateArguments() const { return m_templateArgs; }
 	_STD_VECTOR<DemangledTypeNodeParam>& GetMutableTemplateArguments() { return m_templateArgs; }
 	void SetTemplateArguments(_STD_VECTOR<DemangledTypeNodeParam> args, bool spaceAfterComma = false);
+	void ClearTemplateArguments();
 
 	void AppendString(_STD_STRING& out, BN::Platform* platform) const;
 	_STD_STRING GetString(BN::Platform* platform = nullptr) const;
@@ -158,9 +164,14 @@ public:
 	bool HasTemplateArguments() const;
 	uint8_t GetPointerSuffixBits() const { return m_pointerSuffixBits; }
 	BNNamedTypeReferenceClass GetNTRClass() const;
+	bool GetIntegerTypeInfo(size_t& width, WidthKind& widthKind, bool& isSigned, std::string_view& altName) const;
+	bool GetWideCharTypeInfo(size_t& width, std::string_view& altName) const;
+	bool GetPointerChildType(const DemangledTypeNode*& childType, BNReferenceType& referenceType) const;
 	void SetParenthesizedMemberPointer(bool parenthesized);
 	StringList RenderTypeNameSegments(BN::Platform* platform = nullptr) const;
 	bool IsStructurallyEqual(const DemangledTypeNode& other) const;
+	bool MutateChildTypes(const std::function<bool(DemangledTypeNode&)>& mutator);
+	bool MutateQualifiedNames(const std::function<bool(DemangledQualifiedName&)>& mutator);
 
 	void SetName(DemangledQualifiedName name);
 	void SetConst(bool c) { m_const = c; }

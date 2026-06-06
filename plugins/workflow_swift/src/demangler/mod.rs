@@ -35,6 +35,7 @@ impl CustomDemangler for SwiftDemangler {
         arch: &CoreArchitecture,
         name: &str,
         view: Option<Ref<BinaryView>>,
+        _simplify: bool,
     ) -> Option<(QualifiedName, Option<Ref<Type>>)> {
         let ctx = swift_demangler::Context::new();
         let symbol = swift_demangler::Symbol::parse(&ctx, name)?;

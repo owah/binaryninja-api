@@ -10,7 +10,7 @@ use binaryninja::types::{QualifiedName, Type};
 #[test]
 fn test_demangler_simple() {
     let _session = Session::new().expect("Failed to initialize session");
-    let placeholder_arch = CoreArchitecture::by_name("x86").expect("x86 exists");
+    let placeholder_arch = CoreArchitecture::by_name("x86_64").expect("x86_64 exists");
     // Example LLVM-style mangled name
     let llvm_mangled = "_Z3fooi"; // "foo(int)" in LLVM mangling
     let llvm_demangled = demangle_llvm(llvm_mangled, true).unwrap();
@@ -24,7 +24,7 @@ fn test_demangler_simple() {
     // TODO: We check the type display because other means include things such as confidence which is hard to get 1:1
     assert_eq!(
         gnu_demangled_type.unwrap().to_string(),
-        "int32_t(int32_t)".to_string()
+        "int64_t(int32_t)".to_string()
     );
 
     // Example MSVC-style mangled name
@@ -54,9 +54,17 @@ fn test_custom_demangler() {
             _arch: &CoreArchitecture,
             name: &str,
             _view: Option<Ref<BinaryView>>,
+            simplify: bool,
         ) -> Option<(QualifiedName, Option<Ref<Type>>)> {
             match name {
-                "test_name" => Some((QualifiedName::from(vec!["test_name"]), Some(Type::bool()))),
+                "test_name" => Some((
+                    QualifiedName::from(vec![if simplify {
+                        "test_name_simplified"
+                    } else {
+                        "test_name"
+                    }]),
+                    Some(Type::bool()),
+                )),
                 "test_name2" => Some((QualifiedName::from(vec!["test_name2", "aaa"]), None)),
                 _ => None,
             }
@@ -70,6 +78,14 @@ fn test_custom_demangler() {
     let demangled = demangle_generic(&placeholder_arch, "test_name", None, true).unwrap();
     assert_eq!(
         demangled,
+        (
+            QualifiedName::from(vec!["test_name_simplified"]),
+            Some(Type::bool())
+        )
+    );
+    let unsimplified = demangle_generic(&placeholder_arch, "test_name", None, false).unwrap();
+    assert_eq!(
+        unsimplified,
         (QualifiedName::from(vec!["test_name"]), Some(Type::bool()))
     );
     let demangled2 = demangle_generic(&placeholder_arch, "test_name2", None, true).unwrap();

@@ -17,6 +17,7 @@ impl CustomDemangler for TestDemangler {
         _arch: &CoreArchitecture,
         name: &str,
         _view: Option<Ref<BinaryView>>,
+        _simplify: bool,
     ) -> Option<(QualifiedName, Option<Ref<Type>>)> {
         match name {
             "test_name" => Some((QualifiedName::from(vec!["test_name"]), Some(Type::bool()))),

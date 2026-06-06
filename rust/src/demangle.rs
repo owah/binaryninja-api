@@ -233,6 +233,16 @@ impl Demangler {
         name: &str,
         view: Option<&BinaryView>,
     ) -> Option<(QualifiedName, Option<Ref<Type>>)> {
+        self.demangle_with_options(arch, name, view, false)
+    }
+
+    pub fn demangle_with_options(
+        &self,
+        arch: &CoreArchitecture,
+        name: &str,
+        view: Option<&BinaryView>,
+        simplify: bool,
+    ) -> Option<(QualifiedName, Option<Ref<Type>>)> {
         let name_bytes = name.to_cstr();
 
         let mut out_type = std::ptr::null_mut();
@@ -244,13 +254,14 @@ impl Demangler {
         };
 
         let res = unsafe {
-            BNDemanglerDemangle(
+            BNDemanglerDemangleWithOptions(
                 self.handle,
                 arch.handle,
                 name_bytes.as_ref().as_ptr() as *const _,
                 &mut out_type,
                 &mut out_var_name,
                 view_ptr,
+                simplify,
             )
         };
 
@@ -301,6 +312,7 @@ impl Demangler {
             out_type: *mut *mut BNType,
             out_var_name: *mut BNQualifiedName,
             view: *mut BNBinaryView,
+            simplify: bool,
         ) -> bool
         where
             C: CustomDemangler,
@@ -316,7 +328,7 @@ impl Demangler {
                     true => None,
                 };
 
-                match cmd.demangle(&arch, &name, view) {
+                match cmd.demangle(&arch, &name, view, simplify) {
                     Some((name, ty)) => {
                         // NOTE: Leaked to the caller, who must pick the ref up.
                         *out_type = match ty {
@@ -393,5 +405,6 @@ pub trait CustomDemangler: 'static + Sync {
         arch: &CoreArchitecture,
         name: &str,
         view: Option<Ref<BinaryView>>,
+        simplify: bool,
     ) -> Option<(QualifiedName, Option<Ref<Type>>)>;
 }

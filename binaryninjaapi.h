@@ -2543,26 +2543,6 @@ namespace BinaryNinja {
 	bool IsGNU3MangledString(const std::string& mangledName);
 
 	/*!
-		\ingroup demangle
-	*/
-	std::string SimplifyToString(const std::string& input);
-
-	/*!
-		\ingroup demangle
-	*/
-	std::string SimplifyToString(const QualifiedName& input);
-
-	/*!
-		\ingroup demangle
-	*/
-	QualifiedName SimplifyToQualifiedName(const std::string& input, bool simplify);
-
-	/*!
-		\ingroup demangle
-	*/
-	QualifiedName SimplifyToQualifiedName(const QualifiedName& input);
-
-	/*!
 		\ingroup mainthread
 	*/
 	void RegisterMainThread(MainThreadActionHandler* handler);
@@ -20677,38 +20657,6 @@ namespace BinaryNinja {
 		static int Compare(LinearViewCursor* a, LinearViewCursor* b);
 	};
 
-	/*!
-
-		\ingroup simplifyname
-	*/
-	class SimplifyName
-	{
-	  public:
-		// Use these functions to interface with the simplifier
-		static std::string to_string(const std::string& input);
-		static std::string to_string(const QualifiedName& input);
-		static QualifiedName to_qualified_name(const std::string& input, bool simplify);
-		static QualifiedName to_qualified_name(const QualifiedName& input);
-
-		// Below is everything for the above APIs to work
-		enum SimplifierDest
-		{
-			str,
-			fqn
-		};
-
-		SimplifyName(const std::string&, const SimplifierDest, const bool);
-		~SimplifyName();
-
-		operator std::string() const;
-		operator QualifiedName();
-
-	  private:
-		const char* m_rust_string;
-		const char** m_rust_array;
-		uint64_t m_length;
-	};
-
 	struct FindParameters
 	{
 		BNFindType type;
@@ -22530,7 +22478,7 @@ namespace BinaryNinja {
 
 		static bool IsMangledStringCallback(void* ctxt, const char* name);
 		static bool DemangleCallback(void* ctxt, BNArchitecture* arch, const char* name, BNType** outType,
-			BNQualifiedName* outVarName, BNBinaryView* view);
+			BNQualifiedName* outVarName, BNBinaryView* view, bool simplify);
 		static void FreeVarNameCallback(void* ctxt, BNQualifiedName* name);
 
 	public:
@@ -22591,7 +22539,7 @@ namespace BinaryNinja {
 			\return True if demangling was successful and results were stored into out-parameters
 		 */
 		virtual bool Demangle(Ref<Architecture> arch, const std::string& name, Ref<Type>& outType,
-			QualifiedName& outVarName, Ref<BinaryView> view = nullptr) = 0;
+			QualifiedName& outVarName, Ref<BinaryView> view = nullptr, bool simplify = false) = 0;
 	};
 
 	/*!
@@ -22605,7 +22553,7 @@ namespace BinaryNinja {
 
 		virtual bool IsMangledString(const std::string& name);
 		virtual bool Demangle(Ref<Architecture> arch, const std::string& name, Ref<Type>& outType,
-			QualifiedName& outVarName, Ref<BinaryView> view);
+			QualifiedName& outVarName, Ref<BinaryView> view, bool simplify = false);
 	};
 
 	namespace Unicode

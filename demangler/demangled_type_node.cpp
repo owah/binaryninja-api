@@ -16,8 +16,8 @@
 #ifdef BINARYNINJACORE_LIBRARY
 #include "binaryview.h"
 #endif
+#include "base/assertions.h"
 #include <algorithm>
-#include <cassert>
 #include <cinttypes>
 #include <cstdint>
 
@@ -231,6 +231,18 @@ DemangledNamePart::DemangledNamePart(string base):
 }
 
 
+DemangledNamePart::DemangledNamePart(const char* base):
+	m_base(base), m_hasTemplateArgs(false), m_spaceAfterTemplateComma(false)
+{
+}
+
+
+DemangledNamePart::DemangledNamePart(std::string_view base):
+	m_base(base), m_hasTemplateArgs(false), m_spaceAfterTemplateComma(false)
+{
+}
+
+
 DemangledNamePart::DemangledNamePart(string base, std::shared_ptr<DemangledTypeNode> baseTypeSuffix):
 	m_base(std::move(base)), m_baseTypeSuffix(std::move(baseTypeSuffix)), m_hasTemplateArgs(false),
 	m_spaceAfterTemplateComma(false)
@@ -251,6 +263,14 @@ void DemangledNamePart::SetTemplateArguments(vector<DemangledTypeNodeParam> args
 	m_templateArgs = std::move(args);
 	m_hasTemplateArgs = true;
 	m_spaceAfterTemplateComma = spaceAfterComma;
+}
+
+
+void DemangledNamePart::ClearTemplateArguments()
+{
+	m_templateArgs.clear();
+	m_hasTemplateArgs = false;
+	m_spaceAfterTemplateComma = false;
 }
 
 
@@ -491,7 +511,7 @@ void DemangledTypeNode::SetImplicitThisParameter(DemangledTypeNode type)
 		payload->implicitThisParameterType = CreateShared(std::move(type));
 		return;
 	}
-	assert(false && "SetImplicitThisParameter called for non-function demangled type");
+	BN_ASSERT(false && "SetImplicitThisParameter called for non-function demangled type");
 }
 
 
@@ -615,6 +635,52 @@ DemangledTypeNode::NodeRef DemangledTypeNode::GetPrimaryChild() const
 }
 
 
+bool DemangledTypeNode::MutateChildTypes(const std::function<bool(DemangledTypeNode&)>& mutator)
+{
+	bool changed = false;
+	auto mutateRef = [&](NodeRef& typeRef) {
+		if (!typeRef)
+			return;
+		DemangledTypeNode mutableType = *typeRef;
+		if (mutator(mutableType))
+		{
+			typeRef = CreateShared(std::move(mutableType));
+			changed = true;
+		}
+	};
+
+	if (auto payload = std::get_if<PointerPayload>(&m_payload))
+		mutateRef(payload->childType);
+	else if (auto payload = std::get_if<MemberPointerPayload>(&m_payload))
+		mutateRef(payload->childType);
+	else if (auto payload = std::get_if<ArrayPayload>(&m_payload))
+		mutateRef(payload->childType);
+	else if (auto payload = std::get_if<FunctionPayload>(&m_payload))
+	{
+		mutateRef(payload->returnType);
+		mutateRef(payload->implicitThisParameterType);
+		for (auto& param: payload->params)
+			mutateRef(param.type);
+	}
+	else if (auto payload = std::get_if<PostfixPayload>(&m_payload))
+	{
+		mutateRef(payload->childType);
+		mutateRef(payload->suffixType);
+	}
+	return changed;
+}
+
+
+bool DemangledTypeNode::MutateQualifiedNames(const std::function<bool(DemangledQualifiedName&)>& mutator)
+{
+	if (auto payload = std::get_if<MemberPointerPayload>(&m_payload))
+		return mutator(payload->ownerName);
+	else if (auto payload = std::get_if<NamedTypePayload>(&m_payload))
+		return mutator(payload->name);
+	return false;
+}
+
+
 bool DemangledTypeNode::AddQualifiersToPointerChild(bool cnst, bool vltl)
 {
 	NodeRef* childType = nullptr;
@@ -649,7 +715,7 @@ DemangledQualifiedName& DemangledTypeNode::GetMutableName()
 {
 	if (auto payload = std::get_if<NamedTypePayload>(&m_payload))
 		return payload->name;
-	assert(false && "GetMutableName called for non-named demangled type");
+	BN_ASSERT(false && "GetMutableName called for non-named demangled type");
 	static thread_local DemangledQualifiedName empty;
 	empty.clear();
 	return empty;
@@ -663,7 +729,7 @@ void DemangledTypeNode::SetName(DemangledQualifiedName name)
 		payload->name = std::move(name);
 		return;
 	}
-	assert(false && "SetName called for non-named demangled type");
+	BN_ASSERT(false && "SetName called for non-named demangled type");
 }
 
 
@@ -675,6 +741,53 @@ BNNamedTypeReferenceClass DemangledTypeNode::GetNTRClass() const
 }
 
 
+bool DemangledTypeNode::GetIntegerTypeInfo(size_t& width, WidthKind& widthKind, bool& isSigned,
+	std::string_view& altName) const
+{
+	width = 0;
+	widthKind = FixedWidth;
+	isSigned = false;
+	altName = {};
+	if (auto payload = std::get_if<IntegerPayload>(&m_payload))
+	{
+		width = payload->width;
+		widthKind = payload->widthKind;
+		isSigned = payload->isSigned;
+		altName = std::string_view(payload->altName.data(), payload->altName.size());
+		return true;
+	}
+	return false;
+}
+
+
+bool DemangledTypeNode::GetWideCharTypeInfo(size_t& width, std::string_view& altName) const
+{
+	width = 0;
+	altName = {};
+	if (auto payload = std::get_if<WideCharPayload>(&m_payload))
+	{
+		width = payload->width;
+		altName = std::string_view(payload->altName.data(), payload->altName.size());
+		return true;
+	}
+	return false;
+}
+
+
+bool DemangledTypeNode::GetPointerChildType(const DemangledTypeNode*& childType, BNReferenceType& referenceType) const
+{
+	childType = nullptr;
+	referenceType = PointerReferenceType;
+	if (auto payload = std::get_if<PointerPayload>(&m_payload))
+	{
+		childType = payload->childType.get();
+		referenceType = payload->referenceType;
+		return true;
+	}
+	return false;
+}
+
+
 void DemangledTypeNode::SetNTRType(BNNamedTypeReferenceClass cls)
 {
 	if (auto payload = std::get_if<NamedTypePayload>(&m_payload))
@@ -682,7 +795,7 @@ void DemangledTypeNode::SetNTRType(BNNamedTypeReferenceClass cls)
 		payload->ntrClass = cls;
 		return;
 	}
-	assert(false && "SetNTRType called for non-named demangled type");
+	BN_ASSERT(false && "SetNTRType called for non-named demangled type");
 }
 
 
@@ -693,7 +806,7 @@ void DemangledTypeNode::SetParenthesizedMemberPointer(bool parenthesized)
 		payload->parenthesized = parenthesized;
 		return;
 	}
-	assert(false && "SetParenthesizedMemberPointer called for non-member-pointer demangled type");
+	BN_ASSERT(false && "SetParenthesizedMemberPointer called for non-member-pointer demangled type");
 }
 
 
@@ -704,7 +817,7 @@ void DemangledTypeNode::SetCallingConventionName(BNCallingConventionName cc)
 		payload->callingConventionName = cc;
 		return;
 	}
-	assert(false && "SetCallingConventionName called for non-function demangled type");
+	BN_ASSERT(false && "SetCallingConventionName called for non-function demangled type");
 }
 
 
@@ -758,12 +871,12 @@ bool DemangledTypeNode::IsStructurallyEqual(const DemangledTypeNode& other) cons
 		return true;
 	};
 
-	if (auto payload = std::get_if<VoidPayload>(&m_payload))
-		return payload && std::get_if<VoidPayload>(&other.m_payload);
-	if (auto payload = std::get_if<BoolPayload>(&m_payload))
-		return payload && std::get_if<BoolPayload>(&other.m_payload);
-	if (auto payload = std::get_if<VarArgsPayload>(&m_payload))
-		return payload && std::get_if<VarArgsPayload>(&other.m_payload);
+	if (std::get_if<VoidPayload>(&m_payload))
+		return true;
+	if (std::get_if<BoolPayload>(&m_payload))
+		return true;
+	if (std::get_if<VarArgsPayload>(&m_payload))
+		return true;
 	if (auto payload = std::get_if<IntegerPayload>(&m_payload))
 	{
 		auto otherPayload = std::get_if<IntegerPayload>(&other.m_payload);

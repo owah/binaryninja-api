@@ -187,12 +187,10 @@ public:
 	void SetImplicitThisParameter(DemangledTypeNode type);
 
 	void AppendString(_STD_STRING& out, BN::Platform* platform) const;
-	_STD_STRING GetString() const;
-	_STD_STRING GetString(BN::Platform* platform) const;
+	_STD_STRING GetString(BN::Platform* platform = nullptr) const;
 	_STD_STRING GetStringBeforeName(BN::Platform* platform) const;
 	_STD_STRING GetStringAfterName(BN::Platform* platform) const;
-	_STD_STRING GetTypeAndName(const StringList& name) const;
-	_STD_STRING GetTypeAndName(const StringList& name, BN::Platform* platform) const;
+	_STD_STRING GetTypeAndName(const StringList& name, BN::Platform* platform = nullptr) const;
 
 	BN::Ref<BN::Type> Finalize(BN::Platform* platform = nullptr) const;
 
@@ -282,7 +280,7 @@ private:
 	uint8_t GetValueConfidence() const;
 	BNTypeClass GetPayloadClass() const;
 	NodeRef GetPrimaryChild() const;
-	static size_t ResolveWidth(size_t width, WidthKind widthKind, BN::Platform* platform = nullptr);
+	static size_t ResolveWidth(size_t width, WidthKind widthKind, const BN::Platform* platform = nullptr);
 
 	BNNameType m_nameType;
 	uint8_t m_pointerSuffixBits;

@@ -18,8 +18,6 @@
 #endif
 #include "base/assertions.h"
 #include <algorithm>
-#include <cinttypes>
-#include <cstdint>
 
 #ifdef BINARYNINJACORE_LIBRARY
 using namespace BinaryNinjaCore;
@@ -109,14 +107,14 @@ namespace
 		return empty;
 	}
 
-	static size_t ResolveAddressWidth(Platform* platform)
+	static size_t ResolveAddressWidth(const Platform* platform)
 	{
 		if (platform)
 			return platform->GetAddressSize();
 		return 8;
 	}
 
-	static size_t ResolveDefaultIntegerWidth(Platform* platform)
+	static size_t ResolveDefaultIntegerWidth(const Platform* platform)
 	{
 		if (platform)
 		{
@@ -131,7 +129,7 @@ namespace
 		return 4;
 	}
 
-	static Ref<CallingConvention> ResolveCallingConvention(BNCallingConventionName cc, Platform* platform)
+	static Ref<CallingConvention> ResolveCallingConvention(BNCallingConventionName cc, const Platform* platform)
 	{
 #ifndef BINARYNINJACORE_LIBRARY
 		Ref<Architecture> platformArch;
@@ -152,45 +150,40 @@ namespace
 		case CdeclCallingConvention:
 			if (platform)
 			{
-				auto platformCC = platform->GetCdeclCallingConvention();
-				if (platformCC)
+				if (auto platformCC = platform->GetCdeclCallingConvention())
 					return platformCC;
 			}
 			if (arch)
 			{
-				auto archCC = arch->GetCdeclCallingConvention();
-				if (archCC)
+				if (auto archCC = arch->GetCdeclCallingConvention())
 					return archCC;
 			}
 			return arch ? arch->GetCallingConventionByName("cdecl") : nullptr;
 		case STDCallCallingConvention:
 			if (platform)
 			{
-				auto platformCC = platform->GetStdcallCallingConvention();
-				if (platformCC)
+				if (auto platformCC = platform->GetStdcallCallingConvention())
 					return platformCC;
 			}
 			if (arch)
 			{
-				auto archCC = arch->GetStdcallCallingConvention();
-				if (archCC)
+				if (auto archCC = arch->GetStdcallCallingConvention())
 					return archCC;
 			}
 			return arch ? arch->GetCallingConventionByName("stdcall") : nullptr;
 		case FastcallCallingConvention:
 			if (platform)
 			{
-				auto platformCC = platform->GetFastcallCallingConvention();
-				if (platformCC)
+				if (auto platformCC = platform->GetFastcallCallingConvention())
 					return platformCC;
 			}
 			if (arch)
 			{
-				auto archCC = arch->GetFastcallCallingConvention();
-				if (archCC)
+				if (auto archCC = arch->GetFastcallCallingConvention())
 					return archCC;
+				return arch->GetCallingConventionByName("fastcall");
 			}
-			return arch ? arch->GetCallingConventionByName("fastcall") : nullptr;
+			return nullptr;
 		case ThisCallCallingConvention:
 			if (arch)
 				return arch->GetCallingConventionByName("thiscall");
@@ -551,7 +544,7 @@ DemangledTypeNode DemangledTypeNode::PostfixType(NodeRef child, string suffix)
 
 DemangledTypeNode DemangledTypeNode::PostfixType(NodeRef child, string separator, NodeRef suffixType)
 {
-	DemangledTypeNode n = PostfixType(child, std::move(separator));
+	DemangledTypeNode n = PostfixType(std::move(child), std::move(separator));
 	if (auto payload = std::get_if<PostfixPayload>(&n.m_payload))
 		payload->suffixType = std::move(suffixType);
 	return n;
@@ -578,7 +571,7 @@ uint8_t DemangledTypeNode::PointerSuffixBit(BNPointerSuffix ps)
 }
 
 
-size_t DemangledTypeNode::ResolveWidth(size_t width, WidthKind widthKind, Platform* platform)
+size_t DemangledTypeNode::ResolveWidth(size_t width, WidthKind widthKind, const Platform* platform)
 {
 	switch (widthKind)
 	{
@@ -693,7 +686,7 @@ bool DemangledTypeNode::AddQualifiersToPointerChild(bool cnst, bool vltl)
 
 	if (!*childType)
 		return true;
-	if ((*childType).use_count() > 1)
+	if (childType->use_count() > 1)
 		*childType = CreateSharedCopy(**childType);
 	if (cnst)
 		(*childType)->SetConst(true);
@@ -823,12 +816,8 @@ void DemangledTypeNode::SetCallingConventionName(BNCallingConventionName cc)
 
 bool DemangledTypeNode::HasTemplateArguments() const
 {
-	const auto* payload = std::get_if<NamedTypePayload>(&m_payload);
-	if (!payload)
-		return false;
-	for (const auto& segment: payload->name)
-		if (segment.HasTemplateArguments())
-			return true;
+	if (const auto* payload = std::get_if<NamedTypePayload>(&m_payload))
+		return std::ranges::any_of(payload->name, &DemangledNamePart::HasTemplateArguments);
 	return false;
 }
 
@@ -872,11 +861,11 @@ bool DemangledTypeNode::IsStructurallyEqual(const DemangledTypeNode& other) cons
 	};
 
 	if (std::get_if<VoidPayload>(&m_payload))
-		return true;
+		return std::get_if<VoidPayload>(&other.m_payload);
 	if (std::get_if<BoolPayload>(&m_payload))
-		return true;
+		return std::get_if<BoolPayload>(&other.m_payload);
 	if (std::get_if<VarArgsPayload>(&m_payload))
-		return true;
+		return std::get_if<VarArgsPayload>(&other.m_payload);
 	if (auto payload = std::get_if<IntegerPayload>(&m_payload))
 	{
 		auto otherPayload = std::get_if<IntegerPayload>(&other.m_payload);
@@ -944,17 +933,17 @@ bool DemangledTypeNode::IsStructurallyEqual(const DemangledTypeNode& other) cons
 StringList DemangledTypeNode::RenderTypeNameSegments(Platform* platform) const
 {
 	StringList result;
-	if (auto payload = std::get_if<PostfixPayload>(&m_payload))
+	if (std::get_if<PostfixPayload>(&m_payload))
 	{
 		result.push_back(GetString(platform));
 		return result;
 	}
-	auto payload = std::get_if<NamedTypePayload>(&m_payload);
-	if (!payload)
-		return result;
-	result.reserve(payload->name.size());
-	for (const auto& segment: payload->name)
-		result.push_back(segment.GetString(platform));
+	if (auto payload = std::get_if<NamedTypePayload>(&m_payload))
+	{
+		result.reserve(payload->name.size());
+		for (const auto& segment: payload->name)
+			result.push_back(segment.GetString(platform));
+	}
 	return result;
 }
 
@@ -995,11 +984,9 @@ void DemangledTypeNode::AppendPostfixType(string& out, Platform* platform) const
 
 void DemangledTypeNode::AppendModifiers(string& out) const
 {
-	if (m_const && m_volatile)
-		out += " const volatile";
-	else if (m_const)
+	if (m_const)
 		out += " const";
-	else if (m_volatile)
+	if (m_volatile)
 		out += " volatile";
 }
 
@@ -1237,12 +1224,6 @@ void DemangledTypeNode::AppendBeforeName(string& out, const DemangledTypeNode* p
 }
 
 
-static string FormatArrayCount(uint64_t elements)
-{
-	return string(fmt::format("{:#x}", elements));
-}
-
-
 void DemangledTypeNode::AppendAfterName(string& out, const DemangledTypeNode* parentType, Platform* platform) const
 {
 	switch (GetPayloadClass())
@@ -1293,7 +1274,7 @@ void DemangledTypeNode::AppendAfterName(string& out, const DemangledTypeNode* pa
 		const auto& payload = std::get<ArrayPayload>(m_payload);
 		if (parentType && parentType->GetPayloadClass() == PointerTypeClass)
 			out += ")";
-		out += "[" + FormatArrayCount(payload.elements) + "]";
+		out += fmt::bnformat("[{:#x}]", payload.elements);
 		if (payload.childType)
 			payload.childType->AppendAfterName(out, this, platform);
 		break;
@@ -1306,9 +1287,8 @@ void DemangledTypeNode::AppendAfterName(string& out, const DemangledTypeNode* pa
 
 void DemangledTypeNode::AppendString(string& out, Platform* platform) const
 {
-	size_t beforeEnd = out.size();
 	AppendBeforeName(out, nullptr, platform);
-	beforeEnd = out.size(); // track where "before" ends
+	size_t beforeEnd = out.size(); // track where "before" ends
 
 	string after;
 	AppendAfterName(after, nullptr, platform);
@@ -1328,23 +1308,11 @@ void DemangledTypeNode::AppendString(string& out, Platform* platform) const
 }
 
 
-string DemangledTypeNode::GetString() const
-{
-	return GetString(nullptr);
-}
-
-
 string DemangledTypeNode::GetString(Platform* platform) const
 {
 	string out;
 	AppendString(out, platform);
 	return out;
-}
-
-
-string DemangledTypeNode::GetTypeAndName(const StringList& name) const
-{
-	return GetTypeAndName(name, nullptr);
 }
 
 
@@ -1484,14 +1452,14 @@ Ref<Type> DemangledTypeNode::Finalize(Platform* platform) const
 		if (payload.implicitThisParameterType)
 		{
 			Ref<Type> thisType = payload.implicitThisParameterType->Finalize(platform);
-			finalParams.push_back({"this", thisType->WithConfidence(payload.implicitThisParameterType->GetValueConfidence()),
-				DefaultLocationSource, Variable()});
+			finalParams.emplace_back("this", thisType->WithConfidence(payload.implicitThisParameterType->GetValueConfidence()),
+				DefaultLocationSource, Variable());
 		}
 		for (auto& p : payload.params)
 		{
 			Ref<Type> pType = p.type ? p.type->Finalize(platform) : Ref<Type>(Type::VoidType());
 			uint8_t pTypeConfidence = p.type ? p.type->GetValueConfidence() : BN_FULL_CONFIDENCE;
-			finalParams.push_back({p.name, pType->WithConfidence(pTypeConfidence), DefaultLocationSource, Variable()});
+			finalParams.emplace_back(p.name, pType->WithConfidence(pTypeConfidence), DefaultLocationSource, Variable());
 		}
 		Confidence<Ref<CallingConvention>> callingConvention;
 		if (payload.callingConventionName != NoCallingConvention)
@@ -1513,7 +1481,7 @@ Ref<Type> DemangledTypeNode::Finalize(Platform* platform) const
 
 	case NamedTypeReferenceClass:
 	{
-		if (auto payload = std::get_if<PostfixPayload>(&m_payload))
+		if (std::get_if<PostfixPayload>(&m_payload))
 		{
 			QualifiedName name(RenderTypeNameSegments(platform));
 			TypeBuilder tb = TypeBuilder::NamedType(

@@ -152,6 +152,8 @@ public:
 		StringList nameSegments, bool isSigned = false);
 	static DemangledTypeNode PostfixType(NodeRef child, _STD_STRING suffix);
 	static DemangledTypeNode PostfixType(NodeRef child, _STD_STRING separator, NodeRef suffixType);
+	static DemangledTypeNode UnaryExpression(_STD_STRING op, NodeRef child);
+	static DemangledTypeNode BinaryExpression(NodeRef left, _STD_STRING op, NodeRef right);
 	static NodeRef CreateShared(DemangledTypeNode node);
 	static NodeRef CreateSharedCopy(const DemangledTypeNode& node);
 
@@ -262,6 +264,19 @@ private:
 		NodeRef suffixType;
 	};
 
+	struct UnaryExpressionPayload
+	{
+		_STD_STRING op;
+		NodeRef childType;
+	};
+
+	struct BinaryExpressionPayload
+	{
+		NodeRef leftType;
+		_STD_STRING op;
+		NodeRef rightType;
+	};
+
 	using Payload = std::variant<
 		VoidPayload,
 		BoolPayload,
@@ -274,7 +289,9 @@ private:
 		ArrayPayload,
 		FunctionPayload,
 		NamedTypePayload,
-		PostfixPayload>;
+		PostfixPayload,
+		UnaryExpressionPayload,
+		BinaryExpressionPayload>;
 
 	bool HasUndeterminedTopLevelSize() const;
 	uint8_t GetValueConfidence() const;
@@ -294,6 +311,8 @@ private:
 	void AddPointerSuffixes(BN::TypeBuilder& tb, bool omitPtr64 = true) const;
 	bool HasPostfixType() const;
 	void AppendPostfixType(_STD_STRING& out, BN::Platform* platform) const;
+	void AppendUnaryExpression(_STD_STRING& out, BN::Platform* platform) const;
+	void AppendBinaryExpression(_STD_STRING& out, BN::Platform* platform) const;
 	void AppendModifiers(_STD_STRING& out) const;
 	void AppendPointerSuffix(_STD_STRING& out) const;
 	static void AppendNamePartList(_STD_STRING& out, const DemangledQualifiedName& name,

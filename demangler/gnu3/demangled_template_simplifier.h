@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "demangled_type_node.h"
+#include "demangler/demangled_type_node.h"
 
 namespace DemangledTemplateSimplifier
 {

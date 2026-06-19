@@ -551,6 +551,22 @@ DemangledTypeNode DemangledTypeNode::PostfixType(NodeRef child, string separator
 }
 
 
+DemangledTypeNode DemangledTypeNode::UnaryExpression(string op, NodeRef child)
+{
+	DemangledTypeNode n;
+	n.m_payload = UnaryExpressionPayload{std::move(op), std::move(child)};
+	return n;
+}
+
+
+DemangledTypeNode DemangledTypeNode::BinaryExpression(NodeRef left, string op, NodeRef right)
+{
+	DemangledTypeNode n;
+	n.m_payload = BinaryExpressionPayload{std::move(left), std::move(op), std::move(right)};
+	return n;
+}
+
+
 uint8_t DemangledTypeNode::PointerSuffixBit(BNPointerSuffix ps)
 {
 	switch (ps)
@@ -604,7 +620,9 @@ BNTypeClass DemangledTypeNode::GetPayloadClass() const
 	case 9: return FunctionTypeClass;
 	case 10:
 	case 11:
-		// PostfixPayload is an internal named-type rendering form, so it reports as a named type.
+	case 12:
+	case 13:
+		// Internal expression rendering forms report as named types so they can be carried as template args.
 		return NamedTypeReferenceClass;
 	default:
 		return VoidTypeClass;
@@ -624,6 +642,10 @@ DemangledTypeNode::NodeRef DemangledTypeNode::GetPrimaryChild() const
 		return payload->returnType;
 	if (auto payload = std::get_if<PostfixPayload>(&m_payload))
 		return payload->childType;
+	if (auto payload = std::get_if<UnaryExpressionPayload>(&m_payload))
+		return payload->childType;
+	if (auto payload = std::get_if<BinaryExpressionPayload>(&m_payload))
+		return payload->leftType;
 	return nullptr;
 }
 
@@ -659,6 +681,15 @@ bool DemangledTypeNode::MutateChildTypes(const std::function<bool(DemangledTypeN
 	{
 		mutateRef(payload->childType);
 		mutateRef(payload->suffixType);
+	}
+	else if (auto payload = std::get_if<UnaryExpressionPayload>(&m_payload))
+	{
+		mutateRef(payload->childType);
+	}
+	else if (auto payload = std::get_if<BinaryExpressionPayload>(&m_payload))
+	{
+		mutateRef(payload->leftType);
+		mutateRef(payload->rightType);
 	}
 	return changed;
 }
@@ -818,6 +849,11 @@ bool DemangledTypeNode::HasTemplateArguments() const
 {
 	if (const auto* payload = std::get_if<NamedTypePayload>(&m_payload))
 		return std::ranges::any_of(payload->name, &DemangledNamePart::HasTemplateArguments);
+	if (const auto* payload = std::get_if<UnaryExpressionPayload>(&m_payload))
+		return payload->childType && payload->childType->HasTemplateArguments();
+	if (const auto* payload = std::get_if<BinaryExpressionPayload>(&m_payload))
+		return (payload->leftType && payload->leftType->HasTemplateArguments()) ||
+			(payload->rightType && payload->rightType->HasTemplateArguments());
 	return false;
 }
 
@@ -925,6 +961,19 @@ bool DemangledTypeNode::IsStructurallyEqual(const DemangledTypeNode& other) cons
 			typePtrsEqual(payload->childType, otherPayload->childType) &&
 			typePtrsEqual(payload->suffixType, otherPayload->suffixType);
 	}
+	if (auto payload = std::get_if<UnaryExpressionPayload>(&m_payload))
+	{
+		auto otherPayload = std::get_if<UnaryExpressionPayload>(&other.m_payload);
+		return otherPayload && payload->op == otherPayload->op &&
+			typePtrsEqual(payload->childType, otherPayload->childType);
+	}
+	if (auto payload = std::get_if<BinaryExpressionPayload>(&m_payload))
+	{
+		auto otherPayload = std::get_if<BinaryExpressionPayload>(&other.m_payload);
+		return otherPayload && payload->op == otherPayload->op &&
+			typePtrsEqual(payload->leftType, otherPayload->leftType) &&
+			typePtrsEqual(payload->rightType, otherPayload->rightType);
+	}
 
 	return false;
 }
@@ -934,6 +983,16 @@ StringList DemangledTypeNode::RenderTypeNameSegments(Platform* platform) const
 {
 	StringList result;
 	if (std::get_if<PostfixPayload>(&m_payload))
+	{
+		result.push_back(GetString(platform));
+		return result;
+	}
+	if (std::get_if<UnaryExpressionPayload>(&m_payload))
+	{
+		result.push_back(GetString(platform));
+		return result;
+	}
+	if (std::get_if<BinaryExpressionPayload>(&m_payload))
 	{
 		result.push_back(GetString(platform));
 		return result;
@@ -979,6 +1038,36 @@ void DemangledTypeNode::AppendPostfixType(string& out, Platform* platform) const
 	out += payload->suffix;
 	if (payload->suffixType)
 		payload->suffixType->AppendString(out, platform);
+}
+
+
+void DemangledTypeNode::AppendUnaryExpression(string& out, Platform* platform) const
+{
+	const auto* payload = std::get_if<UnaryExpressionPayload>(&m_payload);
+	if (!payload)
+		return;
+	out += payload->op;
+	out += '(';
+	if (payload->childType)
+		payload->childType->AppendString(out, platform);
+	out += ')';
+}
+
+
+void DemangledTypeNode::AppendBinaryExpression(string& out, Platform* platform) const
+{
+	const auto* payload = std::get_if<BinaryExpressionPayload>(&m_payload);
+	if (!payload)
+		return;
+	out += '(';
+	if (payload->leftType)
+		payload->leftType->AppendString(out, platform);
+	out += ") ";
+	out += payload->op;
+	out += " (";
+	if (payload->rightType)
+		payload->rightType->AppendString(out, platform);
+	out += ')';
 }
 
 
@@ -1192,6 +1281,18 @@ void DemangledTypeNode::AppendBeforeName(string& out, const DemangledTypeNode* p
 			AppendModifiers(out);
 			break;
 		}
+		if (std::get_if<UnaryExpressionPayload>(&m_payload))
+		{
+			AppendUnaryExpression(out, platform);
+			AppendModifiers(out);
+			break;
+		}
+		if (std::get_if<BinaryExpressionPayload>(&m_payload))
+		{
+			AppendBinaryExpression(out, platform);
+			AppendModifiers(out);
+			break;
+		}
 	{
 		const auto& payload = std::get<NamedTypePayload>(m_payload);
 		switch (payload.ntrClass)
@@ -1333,6 +1434,10 @@ bool DemangledTypeNode::HasUndeterminedTopLevelSize() const
 	if (auto payload = std::get_if<NamedTypePayload>(&m_payload))
 		return payload->widthKind == FixedWidth && payload->width == 0;
 	if (std::holds_alternative<PostfixPayload>(m_payload))
+		return true;
+	if (std::holds_alternative<UnaryExpressionPayload>(m_payload))
+		return true;
+	if (std::holds_alternative<BinaryExpressionPayload>(m_payload))
 		return true;
 	if (auto payload = std::get_if<ArrayPayload>(&m_payload))
 		return payload->childType && payload->childType->HasUndeterminedTopLevelSize();
@@ -1481,7 +1586,8 @@ Ref<Type> DemangledTypeNode::Finalize(Platform* platform) const
 
 	case NamedTypeReferenceClass:
 	{
-		if (std::get_if<PostfixPayload>(&m_payload))
+		if (std::get_if<PostfixPayload>(&m_payload) || std::get_if<UnaryExpressionPayload>(&m_payload) ||
+			std::get_if<BinaryExpressionPayload>(&m_payload))
 		{
 			QualifiedName name(RenderTypeNameSegments(platform));
 			TypeBuilder tb = TypeBuilder::NamedType(

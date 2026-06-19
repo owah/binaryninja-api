@@ -135,6 +135,30 @@ static DemangledNamePart NameSegmentWithTemplateArgs(const string& name, vector<
 }
 
 
+static void AppendStructuredNameSegments(DemangledQualifiedName& name, const StringList& segments)
+{
+	for (const auto& segment: segments)
+		name.emplace_back(segment);
+}
+
+
+static void SetStructuredExpressionNode(DemangledTypeNode* outNode, const DemangledQualifiedName& name)
+{
+	if (outNode && !name.empty())
+	{
+		if (name.size() > 1 && !name.back().HasTemplateArguments())
+		{
+			DemangledQualifiedName baseName(name.begin(), name.end() - 1);
+			DemangledTypeNode baseType = DemangledTypeNode::NamedType(UnknownNamedTypeClass, std::move(baseName));
+			*outNode = DemangledTypeNode::PostfixType(
+				DemangledTypeNode::CreateShared(std::move(baseType)), "::" + name.back().GetString());
+			return;
+		}
+		*outNode = DemangledTypeNode::NamedType(UnknownNamedTypeClass, name);
+	}
+}
+
+
 static string GetOperator(char elm1, char elm2)
 {
 	switch (hash(elm1, elm2))
@@ -1366,18 +1390,41 @@ string DemangleGNU3::DemangleUnarySuffixExpression(const string& op)
 }
 
 
-string DemangleGNU3::DemangleUnaryPrefixExpression(const string& op)
+string DemangleGNU3::DemangleUnaryPrefixExpression(const string& op, DemangledTypeNode* outNode)
 {
-	return op + "(" + DemangleExpression() + ")";
+	DemangledTypeNode exprNode;
+	string expr = DemangleExpression(outNode ? &exprNode : nullptr);
+	if (outNode)
+	{
+		if (exprNode.GetClass() == VoidTypeClass)
+			exprNode = CreateUnknownType(expr);
+		*outNode = DemangledTypeNode::UnaryExpression(
+			op, DemangledTypeNode::CreateShared(std::move(exprNode)));
+	}
+	return op + "(" + expr + ")";
 }
 
 
-string DemangleGNU3::DemangleBinaryExpression(const string& op)
+string DemangleGNU3::DemangleBinaryExpression(const string& op, DemangledTypeNode* outNode)
 {
 	indent();
 	MyLogDebug("%s: '%s'\n", __FUNCTION__, m_reader.GetRaw().c_str());
-	const string lhs = "(" + DemangleExpression() + ")";
-	const string rhs = "(" + DemangleExpression() + ")";
+	DemangledTypeNode lhsNode;
+	DemangledTypeNode rhsNode;
+	const string lhsExpr = DemangleExpression(outNode ? &lhsNode : nullptr);
+	const string rhsExpr = DemangleExpression(outNode ? &rhsNode : nullptr);
+	const string lhs = "(" + lhsExpr + ")";
+	const string rhs = "(" + rhsExpr + ")";
+	if (outNode)
+	{
+		if (lhsNode.GetClass() == VoidTypeClass)
+			lhsNode = CreateUnknownType(lhsExpr);
+		if (rhsNode.GetClass() == VoidTypeClass)
+			rhsNode = CreateUnknownType(rhsExpr);
+		*outNode = DemangledTypeNode::BinaryExpression(
+			DemangledTypeNode::CreateShared(std::move(lhsNode)), op,
+			DemangledTypeNode::CreateShared(std::move(rhsNode)));
+	}
 	dedent();
 	return lhs + " " + op + " " + rhs;
 }
@@ -1758,7 +1805,7 @@ DemangledTypeNode DemangleGNU3::DemangleUnresolvedType()
 }
 
 
-string DemangleGNU3::DemangleExpression()
+string DemangleGNU3::DemangleExpression(DemangledTypeNode* outNode)
 {
 	MyLogDebug("%s: '%s'\n", __FUNCTION__, m_reader.GetRaw().c_str());
 	/*
@@ -1815,7 +1862,10 @@ string DemangleGNU3::DemangleExpression()
 	}
 	else if (elm1 == 'T') //<template-param>
 	{
-		return DemangleTemplateSubstitution().GetString();
+		DemangledTypeNode type = DemangleTemplateSubstitution();
+		if (outNode)
+			*outNode = type;
+		return type.GetString();
 	}
 
 	elm2 = m_reader.Read();
@@ -1877,7 +1927,7 @@ string DemangleGNU3::DemangleExpression()
 	case hash('p','s'): // + (unary)
 	case hash('a','d'): // & (unary)
 	case hash('d','e'): // * (unary)
-		return DemangleUnaryPrefixExpression(GetOperator(elm1, elm2));
+		return DemangleUnaryPrefixExpression(GetOperator(elm1, elm2), outNode);
 	case hash('i','x'): // []
 	case hash('p','p'): // ++ (postfix in <expression> context)
 	case hash('m','m'): // -- (postfix in <expression> context)
@@ -1926,7 +1976,7 @@ string DemangleGNU3::DemangleExpression()
 	case hash('a','N'): // &=
 	case hash('o','R'): // |=
 	case hash('e','O'): // ^=
-		return DemangleBinaryExpression(GetOperator(elm1, elm2));
+		return DemangleBinaryExpression(GetOperator(elm1, elm2), outNode);
 	case hash('d','l'): // delete
 	case hash('d','a'): // delete[]
 	case hash('n','w'): // new
@@ -2042,9 +2092,12 @@ string DemangleGNU3::DemangleExpression()
 			throw DemangleException();
 		}
 		out = type.GetString();
+		if (outNode)
+			*outNode = type;
 		break;
 	}
 	case hash('s','r'):
+	{
 		/*
 		<unresolved-name> ::=
 		                  ::=   <unresolved-type> <base-unresolved-name>                  # T::x / decltype(p)::x
@@ -2064,6 +2117,7 @@ string DemangleGNU3::DemangleExpression()
 		                       ::= dn <destructor-name>                       # destructor or pseudo-destructor;
 		                                                                      # e.g. ~X or ~X<N-1>
 		*/
+		DemangledQualifiedName structuredName;
 		if (m_reader.Peek() == 'N')
 		{
 			m_reader.Consume();
@@ -2073,10 +2127,17 @@ string DemangleGNU3::DemangleExpression()
 			// When the first component is a digit (source name), skip the
 			// unresolved-type and let the loop below handle all qualifiers.
 			if (!isdigit(m_reader.Peek()))
-				out += DemangleUnresolvedType().GetString() + "::";
+			{
+				DemangledTypeNode unresolvedType = DemangleUnresolvedType();
+				out += unresolvedType.GetString() + "::";
+				AppendStructuredNameSegments(structuredName, unresolvedType.RenderTypeNameSegments());
+			}
 			do
 			{
-				out += DemangleSourceName();
+				const string segName = DemangleSourceName();
+				const size_t segmentStart = out.size();
+				out += segName;
+				DemangledNamePart structuredSegment(segName);
 				// Push bare name (before template args) to substitution table.
 				PushType(DemangledTypeNode::NamedType(UnknownNamedTypeClass, StringList{out}));
 				if (m_reader.Peek() == 'I')
@@ -2085,15 +2146,21 @@ string DemangleGNU3::DemangleExpression()
 					m_reader.Consume();
 					//<tmplate-args>
 					DemangleTemplateArgs(args);
-					out = NameSegmentWithTemplateArgs(out, std::move(args)).GetString();
+					structuredSegment = NameSegmentWithTemplateArgs(segName, std::move(args));
+					out.resize(segmentStart);
+					out += structuredSegment.GetString();
 					// Also push the template instantiation (name+args).
 					PushType(DemangledTypeNode::NamedType(UnknownNamedTypeClass, StringList{out}));
 				}
+				structuredName.push_back(std::move(structuredSegment));
 				out += "::";
 			}while (m_reader.Peek() != 'E');
 			m_reader.Consume();
 
-			out += JoinNameSegments(DemangleBaseUnresolvedName());
+			StringList baseName = DemangleBaseUnresolvedName();
+			out += JoinNameSegments(baseName);
+			AppendStructuredNameSegments(structuredName, baseName);
+			SetStructuredExpressionNode(outNode, structuredName);
 			return out;
 		}
 		if (isdigit(m_reader.Peek()))
@@ -2113,7 +2180,9 @@ string DemangleGNU3::DemangleExpression()
 			{
 				hadTemplateArgs = false;
 				const string segName = DemangleSourceName();
+				const size_t segmentStart = out.size();
 				out += segName;
+				DemangledNamePart structuredSegment(segName);
 				// Push bare name to substitution table.
 				PushType(CreateUnknownType(out));
 				if (m_reader.Peek() == 'I')
@@ -2121,11 +2190,14 @@ string DemangleGNU3::DemangleExpression()
 					ParamList args;
 					m_reader.Consume();
 					DemangleTemplateArgs(args); // consumes the trailing 'E'
-					out = NameSegmentWithTemplateArgs(out, std::move(args)).GetString();
+					structuredSegment = NameSegmentWithTemplateArgs(segName, std::move(args));
+					out.resize(segmentStart);
+					out += structuredSegment.GetString();
 					// Also push the template instantiation.
 					PushType(CreateUnknownType(out));
 					hadTemplateArgs = true;
 				}
+				structuredName.push_back(std::move(structuredSegment));
 				out += "::";
 			}while (!hadTemplateArgs && m_reader.Peek() != 'E');
 			// Consume qualifier-list 'E' if present. GCC sometimes omits it when
@@ -2133,12 +2205,17 @@ string DemangleGNU3::DemangleExpression()
 			// so check rather than unconditionally consuming.
 			if (m_reader.Peek() == 'E')
 				m_reader.Consume();
-			out += JoinNameSegments(DemangleBaseUnresolvedName());
+			StringList baseName = DemangleBaseUnresolvedName();
+			out += JoinNameSegments(baseName);
+			AppendStructuredNameSegments(structuredName, baseName);
+			SetStructuredExpressionNode(outNode, structuredName);
 			return out;
 		}
 		else
 		{
-			out += DemangleUnresolvedType().GetString() + "::";
+			DemangledTypeNode unresolvedType = DemangleUnresolvedType();
+			out += unresolvedType.GetString() + "::";
+			AppendStructuredNameSegments(structuredName, unresolvedType.RenderTypeNameSegments());
 			// GCC may encode multi-level scoped names without the 'N' qualifier
 			// prefix, e.g. "sr St 6__and_I<T>E 5value" for std::__and_<T>::value.
 			// Process any digit-started names: if a name has template args AND
@@ -2152,6 +2229,7 @@ string DemangleGNU3::DemangleExpression()
 					ParamList args;
 					m_reader.Consume();
 					DemangleTemplateArgs(args);
+					DemangledNamePart structuredSegment = NameSegmentWithTemplateArgs(segName, args);
 					if (isdigit(m_reader.Peek()))
 					{
 						// Another source name follows — intermediate qualifier.
@@ -2160,11 +2238,14 @@ string DemangleGNU3::DemangleExpression()
 						string segment = NameSegmentWithTemplateArgs(segName, std::move(args)).GetString();
 						PushType(CreateUnknownType(out + segment));
 						out += segment + "::";
+						structuredName.push_back(std::move(structuredSegment));
 					}
 					else
 					{
 						// No more source names — this template-id is the final name.
 						out += NameSegmentWithTemplateArgs(segName, std::move(args)).GetString();
+						structuredName.push_back(std::move(structuredSegment));
+						SetStructuredExpressionNode(outNode, structuredName);
 						return out;
 					}
 				}
@@ -2172,24 +2253,35 @@ string DemangleGNU3::DemangleExpression()
 				{
 					// Plain source name with no template args — final base name.
 					out += segName;
+					structuredName.emplace_back(segName);
+					SetStructuredExpressionNode(outNode, structuredName);
 					return out;
 				}
 			}
 			// peek is not a digit: fall back for operator-names ("on") / destructor-names ("dn").
-			out += JoinNameSegments(DemangleBaseUnresolvedName());
+			StringList baseName = DemangleBaseUnresolvedName();
+			out += JoinNameSegments(baseName);
+			AppendStructuredNameSegments(structuredName, baseName);
+			SetStructuredExpressionNode(outNode, structuredName);
 		}
 		return out;
+	}
 	default:
 		m_reader.UnRead(2);
 		out = DemangleSourceName();
+		DemangledNamePart structuredSegment(out);
 		if (m_reader.Peek() == 'I')
 		{
 			ParamList args;
 			m_reader.Consume();
 			//<tmplate-args>
 			DemangleTemplateArgs(args);
-			out = NameSegmentWithTemplateArgs(out, std::move(args)).GetString();
+			structuredSegment = NameSegmentWithTemplateArgs(out, std::move(args));
+			out = structuredSegment.GetString();
 		}
+		if (outNode)
+			*outNode = DemangledTypeNode::NamedType(
+				UnknownNamedTypeClass, DemangledQualifiedName{std::move(structuredSegment)});
 		break;
 	}
 	return out;
@@ -2258,12 +2350,18 @@ bool DemangleGNU3::DemangleTemplateArg(ParamList& args, bool* hadNonTypeArg)
 	case 'X':
 	{
 		string expr;
+		DemangledTypeNode exprNode;
+		bool haveExprNode = false;
 		bool emptyPack = false;
 		if (!TryDemangleTemplateParamExpressionPackExpansion(expr, emptyPack))
-			expr = DemangleExpression();
+		{
+			expr = DemangleExpression(&exprNode);
+			haveExprNode = true;
+		}
 		if (!emptyPack)
 		{
-			DemangledTypeNode exprNode = CreateUnknownType(expr);
+			if (!haveExprNode || exprNode.GetClass() == VoidTypeClass)
+				exprNode = CreateUnknownType(expr);
 			args.push_back({"", DemangledTypeNode::CreateShared(std::move(exprNode))});
 		}
 		if (m_reader.Read() != 'E')

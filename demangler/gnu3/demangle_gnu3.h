@@ -161,15 +161,15 @@ class DemangleGNU3
 	StringList DemangleBaseUnresolvedName();
 	DemangledTypeNode DemangleUnresolvedType();
 	_STD_STRING DemangleUnarySuffixExpression(const _STD_STRING& op);
-	_STD_STRING DemangleUnaryPrefixExpression(const _STD_STRING& op);
-	_STD_STRING DemangleBinaryExpression(const _STD_STRING& op);
+	_STD_STRING DemangleUnaryPrefixExpression(const _STD_STRING& op, DemangledTypeNode* outNode = nullptr);
+	_STD_STRING DemangleBinaryExpression(const _STD_STRING& op, DemangledTypeNode* outNode = nullptr);
 	_STD_STRING DemangleUnaryPrefixType(const _STD_STRING& op);
 	_STD_STRING DemangleTypeString();
 	_STD_STRING DemangleExpressionList();
 	DemangledTypeNode DemangleUnqualifiedName();
 	_STD_STRING DemangleSourceName();
 	_STD_STRING DemangleNumberAsString();
-	_STD_STRING DemangleExpression();
+	_STD_STRING DemangleExpression(DemangledTypeNode* outNode = nullptr);
 	_STD_STRING DemanglePrimaryExpression();
 	NodeRef DemangleTemplateSubstitutionEntry(NodeRef* outTypeRef = nullptr);
 	bool TryDemangleTemplateParamPackExpansion(DemangledTypeNode& type, bool& emptyPack);

@@ -16,8 +16,9 @@
 // See https://llvm.org/LICENSE.txt for license information.
 
 #include "demangle_msvc.h"
+#ifdef BINARYNINJACORE_LIBRARY
 #include "unicode.h"
-#include "base/unicode.h"
+#endif
 #include <limits>
 #include <memory>
 #include <ranges>
@@ -1559,7 +1560,10 @@ DemangledTypeNode Demangle::DemangleString(NameList& symbolName)
 		}
 	}
 	symbolName.clear();
-	symbolName.push_back(MakeNameSegment(fmt::bnformat("{}\"{}\"{}", literalPrefix, name, truncated ? "..." : "")));
+	_STD_STRING literalName = literalPrefix + "\"" + name + "\"";
+	if (truncated)
+		literalName += "...";
+	symbolName.push_back(MakeNameSegment(literalName));
 	return type;
 }
 

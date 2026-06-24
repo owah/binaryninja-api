@@ -8,6 +8,7 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
 	*.h
 	../demangled_type_node.cpp
 	../demangled_type_node.h
+	../nesting_guard.h
 	../gnu3/demangled_template_simplifier.cpp
 	../gnu3/demangled_template_simplifier.h)
 

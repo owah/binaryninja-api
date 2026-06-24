@@ -54,6 +54,8 @@ namespace BinaryNinja { class Platform; }
 
 using StringList = _STD_VECTOR<_STD_STRING>;
 
+BN::Platform& GetDemanglerFallbackPlatform();
+
 class DemangledTypeNode;
 
 struct DemangledTypeNodeParam
@@ -84,8 +86,8 @@ public:
 	void SetTemplateArguments(_STD_VECTOR<DemangledTypeNodeParam> args, bool spaceAfterComma = false);
 	void ClearTemplateArguments();
 
-	void AppendString(_STD_STRING& out, BN::Platform* platform) const;
-	_STD_STRING GetString(BN::Platform* platform = nullptr) const;
+	void AppendString(_STD_STRING& out, BN::Platform& platform) const;
+	_STD_STRING GetString(BN::Platform& platform = GetDemanglerFallbackPlatform()) const;
 	bool IsStructurallyEqual(const DemangledNamePart& other) const;
 
 	static Ref CreateShared(DemangledNamePart part);
@@ -170,7 +172,7 @@ public:
 	bool GetWideCharTypeInfo(size_t& width, std::string_view& altName) const;
 	bool GetPointerChildType(const DemangledTypeNode*& childType, BNReferenceType& referenceType) const;
 	void SetParenthesizedMemberPointer(bool parenthesized);
-	StringList RenderTypeNameSegments(BN::Platform* platform = nullptr) const;
+	StringList RenderTypeNameSegments(BN::Platform& platform = GetDemanglerFallbackPlatform()) const;
 	bool IsStructurallyEqual(const DemangledTypeNode& other) const;
 	bool MutateChildTypes(const std::function<bool(DemangledTypeNode&)>& mutator);
 	bool MutateQualifiedNames(const std::function<bool(DemangledQualifiedName&)>& mutator);
@@ -188,13 +190,13 @@ public:
 	void SetNTRType(BNNamedTypeReferenceClass cls);
 	void SetImplicitThisParameter(DemangledTypeNode type);
 
-	void AppendString(_STD_STRING& out, BN::Platform* platform) const;
-	_STD_STRING GetString(BN::Platform* platform = nullptr) const;
-	_STD_STRING GetStringBeforeName(BN::Platform* platform) const;
-	_STD_STRING GetStringAfterName(BN::Platform* platform) const;
-	_STD_STRING GetTypeAndName(const StringList& name, BN::Platform* platform = nullptr) const;
+	void AppendString(_STD_STRING& out, BN::Platform& platform) const;
+	_STD_STRING GetString(BN::Platform& platform = GetDemanglerFallbackPlatform()) const;
+	_STD_STRING GetStringBeforeName(BN::Platform& platform = GetDemanglerFallbackPlatform()) const;
+	_STD_STRING GetStringAfterName(BN::Platform& platform = GetDemanglerFallbackPlatform()) const;
+	_STD_STRING GetTypeAndName(const StringList& name, BN::Platform& platform = GetDemanglerFallbackPlatform()) const;
 
-	BN::Ref<BN::Type> Finalize(BN::Platform* platform = nullptr) const;
+	BN::Ref<BN::Type> Finalize(BN::Platform& platform = GetDemanglerFallbackPlatform()) const;
 
 private:
 	struct VoidPayload {};
@@ -297,7 +299,7 @@ private:
 	uint8_t GetValueConfidence() const;
 	BNTypeClass GetPayloadClass() const;
 	NodeRef GetPrimaryChild() const;
-	static size_t ResolveWidth(size_t width, WidthKind widthKind, const BN::Platform* platform = nullptr);
+	static size_t ResolveWidth(size_t width, WidthKind widthKind, const BN::Platform& platform = GetDemanglerFallbackPlatform());
 
 	BNNameType m_nameType;
 	uint8_t m_pointerSuffixBits;
@@ -310,14 +312,14 @@ private:
 	static uint8_t PointerSuffixBit(BNPointerSuffix ps);
 	void AddPointerSuffixes(BN::TypeBuilder& tb, bool omitPtr64 = true) const;
 	bool HasPostfixType() const;
-	void AppendPostfixType(_STD_STRING& out, BN::Platform* platform) const;
-	void AppendUnaryExpression(_STD_STRING& out, BN::Platform* platform) const;
-	void AppendBinaryExpression(_STD_STRING& out, BN::Platform* platform) const;
+	void AppendPostfixType(_STD_STRING& out, BN::Platform& platform) const;
+	void AppendUnaryExpression(_STD_STRING& out, BN::Platform& platform) const;
+	void AppendBinaryExpression(_STD_STRING& out, BN::Platform& platform) const;
 	void AppendModifiers(_STD_STRING& out) const;
 	void AppendPointerSuffix(_STD_STRING& out) const;
 	static void AppendNamePartList(_STD_STRING& out, const DemangledQualifiedName& name,
-		BN::Platform* platform);
-	void AppendTypeName(_STD_STRING& out, BN::Platform* platform) const;
-	void AppendBeforeName(_STD_STRING& out, const DemangledTypeNode* parentType, BN::Platform* platform) const;
-	void AppendAfterName(_STD_STRING& out, const DemangledTypeNode* parentType, BN::Platform* platform) const;
+		BN::Platform& platform);
+	void AppendTypeName(_STD_STRING& out, BN::Platform& platform) const;
+	void AppendBeforeName(_STD_STRING& out, const DemangledTypeNode* parentType, BN::Platform& platform) const;
+	void AppendAfterName(_STD_STRING& out, const DemangledTypeNode* parentType, BN::Platform& platform) const;
 };

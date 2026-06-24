@@ -13,8 +13,7 @@
 // limitations under the License.
 
 #pragma once
-#include <stdexcept>
-#include <exception>
+#include <functional>
 #include <utility>
 
 // XXX: Compiled directly into the core for performance reasons
@@ -37,14 +36,7 @@
 #endif
 
 #include "demangler/demangled_type_node.h"
-
-class DemangleException: public std::exception
-{
-	_STD_STRING m_message;
-public:
-	DemangleException(_STD_STRING msg="Attempt to read beyond bounds or missing expected character"): m_message(msg){}
-	virtual const char* what() const noexcept { return m_message.c_str(); }
-};
+#include "demangler/nesting_guard.h"
 
 class DemangleGNU3Reader
 {
@@ -120,17 +112,13 @@ class DemangleGNU3
 	using NodeRefList = _STD_VECTOR<NodeRef>;
 
 	DemangleGNU3Reader m_reader;
-	BN::Ref<BN::Platform> m_platform;
+	std::reference_wrapper<BN::Platform> m_platform;
 	NodeRefList m_substitute;
 	NodeRefList m_templateSubstitute;
 	_STD_VECTOR<NodeRefList> m_functionSubstitute;
 	NodeRef m_lastTypeRef;
 	_STD_STRING m_lastName;
-	BNNameType m_nameType;
-	bool m_localType;
-	bool m_hasReturnType;
 	bool m_isParameter;
-	bool m_shouldDeleteReader;
 	bool m_topLevel;
 	bool m_isOperatorOverload;
 	bool m_parsingLambdaParams;
@@ -149,13 +137,7 @@ class DemangleGNU3
 		NodeRef typeRef;
 	};
 	_STD_VECTOR<ForwardRef> m_pendingForwardRefs;
-	class NestingGuard
-	{
-		DemangleGNU3& m_demangler;
-	public:
-		NestingGuard(DemangleGNU3& demangler);
-		~NestingGuard();
-	};
+	using NestingGuard = DemangleNestingGuard;
 	void ResolveForwardTemplateRefs(DemangledTypeNode& type, const ParamList& args);
 	enum SymbolType { Function, FunctionWithReturn, Data, VTable, Rtti, Name};
 	StringList DemangleBaseUnresolvedName();
@@ -211,8 +193,8 @@ class DemangleGNU3
 #endif
 
 public:
-	DemangleGNU3(BN::Platform* platform, const _STD_STRING& mangledName);
-	void Reset(BN::Platform* platform, const _STD_STRING& mangledName);
+	DemangleGNU3(BN::Platform& platform, const _STD_STRING& mangledName);
+	void Reset(BN::Platform& platform, const _STD_STRING& mangledName);
 	DemangledTypeNode DemangleSymbol(StringList& varName, bool simplifyTemplates = false);
 };
 
@@ -223,7 +205,7 @@ public:
 	static bool IsGNU3MangledString(const _STD_STRING& name);
 	static bool DemangleGlobalHeader(_STD_STRING& name, _STD_STRING& header);
 
-	static bool DemangleStringGNU3(BN::Platform* platform, const _STD_STRING& name, BN::Ref<BN::Type>& outType,
+	static bool DemangleStringGNU3(BN::Platform& platform, const _STD_STRING& name, BN::Ref<BN::Type>& outType,
 		BN::QualifiedName& outVarName, bool simplifyTemplates = false);
 	static bool DemangleStringGNU3(BN::Architecture* arch, const _STD_STRING& name, BN::Ref<BN::Type>& outType,
 		BN::QualifiedName& outVarName, bool simplifyTemplates = false);

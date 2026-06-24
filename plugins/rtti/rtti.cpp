@@ -38,7 +38,8 @@ std::optional<std::string> RTTI::DemangleNameMS(BinaryView* view, bool allowMang
 {
     QualifiedName demangledName = {};
     Ref<Type> outType = {};
-    if (!DemangleMS(view->GetDefaultArchitecture(), mangledName, outType, demangledName, view))
+    const bool simplify = Settings::Instance()->Get<bool>("analysis.types.templateSimplifier", view);
+    if (!DemangleMS(view->GetDefaultArchitecture(), mangledName, outType, demangledName, simplify))
         return DemangleNameLLVM(allowMangled, mangledName);
     return NormalizeRTTIClassName(demangledName.GetString());
 }

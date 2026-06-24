@@ -27,9 +27,28 @@ from . import _binaryninjacore as core
 from . import binaryview
 from . import types
 from .log import log_error_for_exception
-from .architecture import Architecture, CoreArchitecture
+from .architecture import Architecture
 from .platform import Platform
+from .settings import Settings
 from typing import Iterable, List, Optional, Union, Tuple, Any
+
+
+def _demangler_config_for_context(
+		arch_or_platform: Union[Architecture, Platform],
+		view: Optional['binaryview.BinaryView'] = None,
+		simplify: bool = False
+):
+	if isinstance(arch_or_platform, Architecture):
+		platform_obj = arch_or_platform.standalone_platform
+	elif isinstance(arch_or_platform, Platform):
+		platform_obj = arch_or_platform
+	else:
+		raise TypeError("Unexpected arch or platform type")
+
+	config = core.BNGetDemanglerConfigForPlatform(platform_obj.handle if platform_obj else None, simplify)
+	if view is not None:
+		config.view = view.handle
+	return config
 
 
 def get_qualified_name(names: Iterable[str]):
@@ -147,90 +166,81 @@ def demangle_llvm(mangled_name: str, options: Optional[Union[bool, binaryview.Bi
 	return None
 
 
-def demangle_ms(archOrPlatform: Union[Architecture, Platform], mangled_name: str, options: Optional[Union[bool, binaryview.BinaryView]] = False):
+def _simplify_from_compat_option(simplify: Optional[Union[bool, binaryview.BinaryView]]):
+	if isinstance(simplify, binaryview.BinaryView):
+		return simplify, Settings().get_bool("analysis.types.templateSimplifier", simplify)
+	if simplify is None:
+		return None, Settings().get_bool("analysis.types.templateSimplifier")
+	if isinstance(simplify, bool):
+		return None, simplify
+	raise TypeError("simplify must be a bool")
+
+
+def _demangle_type_and_name(
+		arch_or_platform: Union[Architecture, Platform],
+		mangled_name: str,
+		simplify: Optional[Union[bool, binaryview.BinaryView]],
+		demangler_name: str
+):
+	view, simplify_templates = _simplify_from_compat_option(simplify)
+
+	binaryninja._init_plugins()
+	demangler = core.BNGetDemanglerByName(demangler_name)
+	if demangler is None:
+		return (None, mangled_name)
+
+	config = _demangler_config_for_context(arch_or_platform, view, simplify_templates)
+	result = core.BNDemanglerResult()
+	if not core.BNDemanglerTryDemangle(demangler, mangled_name, config, result):
+		return (None, mangled_name)
+
+	try:
+		result_type = None
+		if result.type:
+			result_type = types.Type.create(handle=core.BNNewTypeReference(result.type))
+		result_var_name = types.QualifiedName._from_core_struct(result.name)
+		return (result_type, result_var_name.name)
+	finally:
+		core.BNFreeDemanglerResult(result)
+
+
+def demangle_ms(
+		arch_or_platform: Union[Architecture, Platform],
+		mangled_name: str,
+		simplify: bool = False
+):
 	"""
 	``demangle_ms`` demangles a mangled Microsoft Visual Studio C++ name to a Type object.
 
-	:param Union[Architecture, Platform] archOrPlatform: Architecture or Platform for the symbol. Required for pointer/integer sizes and calling conventions.
+	:param Union[Architecture, Platform] arch_or_platform: Architecture or Platform for the symbol. Required for pointer/integer sizes and calling conventions.
 	:param str mangled_name: a mangled Microsoft Visual Studio C++ name
-	:param options: (optional) Whether to simplify demangled names : None falls back to user settings, a BinaryView uses that BinaryView's settings, or a boolean to set it directly
-	:type options: Optional[Union[bool, BinaryView]]
+	:param bool simplify: (optional) Whether to simplify demangled names
 	:return: returns tuple of (Type, demangled_name) or (None, mangled_name) on error
 	:rtype: Tuple[Optional[Type], Union[str, List[str]]]
 	:Example:
 
-		>>> demangle_ms(Platform["x86_64"], "?testf@Foobar@@SA?AW4foo@1@W421@@Z")
+		>>> demangle_ms(Architecture["x86_64"], "?testf@Foobar@@SA?AW4foo@1@W421@@Z")
 		(<type: public: static enum Foobar::foo __cdecl (enum Foobar::foo)>, ['Foobar', 'testf'])
 		>>>
 	"""
-	handle = ctypes.POINTER(core.BNType)()
-	outName = ctypes.POINTER(ctypes.c_char_p)()
-	outSize = ctypes.c_ulonglong()
-	names = []
-
-	demangle = core.BNDemangleMS
-	demangleWithOptions = core.BNDemangleMSWithOptions
-
-	if isinstance(archOrPlatform, Platform):
-		demangle = core.BNDemangleMSPlatform
-
-	if (
-	    isinstance(options, binaryview.BinaryView) and demangleWithOptions(
-	        archOrPlatform.handle, mangled_name, ctypes.byref(handle), ctypes.byref(outName), ctypes.byref(outSize), options.handle
-	    )
-	) or (
-	    isinstance(options, bool) and demangle(
-	        archOrPlatform.handle, mangled_name, ctypes.byref(handle), ctypes.byref(outName), ctypes.byref(outSize), options
-	    )
-	) or (
-	    options is None and demangleWithOptions(
-	        archOrPlatform.handle, mangled_name, ctypes.byref(handle), ctypes.byref(outName), ctypes.byref(outSize), None
-	    )
-	):
-		for i in range(outSize.value):
-			names.append(outName[i].decode('utf8'))  # type: ignore
-		core.BNFreeDemangledName(ctypes.byref(outName), outSize.value)
-		if not handle:
-			return (None, names)
-		return (types.Type.create(handle), names)
-	return (None, mangled_name)
+	return _demangle_type_and_name(arch_or_platform, mangled_name, simplify, "MS")
 
 
-def demangle_gnu3(arch, mangled_name: str, options: Optional[Union[bool, binaryview.BinaryView]] = None):
+def demangle_gnu3(
+		arch_or_platform: Union[Architecture, Platform],
+		mangled_name: str,
+		simplify: bool = False
+):
 	"""
 	``demangle_gnu3`` demangles a mangled name to a Type object.
 
-	:param Architecture arch: Architecture for the symbol. Required for pointer and integer sizes.
+	:param Union[Architecture, Platform] arch_or_platform: Architecture or Platform for the symbol. Required for pointer and integer sizes.
 	:param str mangled_name: a mangled GNU3 name
-	:param options: (optional) Whether to simplify demangled names : None falls back to user settings, a BinaryView uses that BinaryView's settings, or a boolean to set it directly
-	:type options: Optional[Union[bool, BinaryView]]
+	:param bool simplify: (optional) Whether to simplify demangled names
 	:return: returns tuple of (Type, demangled_name) or (None, mangled_name) on error
 	:rtype: Tuple[Optional[Type], Union[str, List[str]]]
 	"""
-	handle = ctypes.POINTER(core.BNType)()
-	outName = ctypes.POINTER(ctypes.c_char_p)()
-	outSize = ctypes.c_ulonglong()
-	names = []
-	if (
-	    isinstance(options, binaryview.BinaryView) and core.BNDemangleGNU3WithOptions(
-	        arch.handle, mangled_name, ctypes.byref(handle), ctypes.byref(outName), ctypes.byref(outSize), options.handle
-	    )
-	) or (
-	    isinstance(options, bool) and core.BNDemangleGNU3(
-	        arch.handle, mangled_name, ctypes.byref(handle), ctypes.byref(outName), ctypes.byref(outSize), options
-	    )
-	) or (
-	    options is None and core.BNDemangleGNU3WithOptions(
-	        arch.handle, mangled_name, ctypes.byref(handle), ctypes.byref(outName), ctypes.byref(outSize), None
-	    )
-	):
-		for i in range(outSize.value):
-			names.append(outName[i].decode('utf8'))  # type: ignore
-		core.BNFreeDemangledName(ctypes.byref(outName), outSize.value)
-		if not handle:
-			return (None, names)
-		return (types.Type.create(handle), names)
-	return (None, mangled_name)
+	return _demangle_type_and_name(arch_or_platform, mangled_name, simplify, "GNU3")
 
 
 class _DemanglerMetaclass(type):
@@ -306,7 +316,7 @@ class Demangler(metaclass=_DemanglerMetaclass):
 		demangler._cb.context = 0
 		demangler._cb.isMangledString = demangler._cb.isMangledString.__class__(demangler._is_mangled_string)
 		demangler._cb.demangle = demangler._cb.demangle.__class__(demangler._demangle)
-		demangler._cb.freeVarName = demangler._cb.freeVarName.__class__(demangler._free_var_name)
+		demangler._cb.freeResult = demangler._cb.freeResult.__class__(demangler._free_result)
 		demangler.handle = core.BNRegisterDemangler(cls.name, demangler._cb)
 		cls._registered_demanglers.append(demangler)
 
@@ -343,37 +353,50 @@ class Demangler(metaclass=_DemanglerMetaclass):
 			log_error_for_exception("Unhandled Python exception in Demangler._is_mangled_string")
 			return False
 
-	def _demangle(self, ctxt, arch, name, out_type, out_var_name, view, simplify):
+	def _demangle(self, ctxt, name, config, result):
 		try:
-			api_arch = CoreArchitecture._from_cache(arch)
+			api_config = config.contents
+			api_platform = None
+			api_arch = None
+			if api_config.platform is not None:
+				api_platform = Platform(handle=core.BNNewPlatformReference(api_config.platform))
+				api_arch = api_platform.arch
 			api_view = None
-			if view is not None:
-				api_view = binaryview.BinaryView(handle=core.BNNewViewReference(view))
+			if api_config.view is not None:
+				api_view = binaryview.BinaryView(handle=core.BNNewViewReference(api_config.view))
+				if api_arch is None and api_view.platform is not None:
+					api_arch = api_view.platform.arch
 
-			result = self.demangle(api_arch, core.pyNativeStr(name), api_view, simplify)
-			if result is None:
+			if api_arch is None:
 				return False
-			type, var_name = result
+
+			demangle_result = self.demangle(api_arch, core.pyNativeStr(name), api_view, api_config.simplifyTemplates)
+			if demangle_result is None:
+				return False
+			type, var_name = demangle_result
 
 			if not isinstance(var_name, types.QualifiedName):
 				var_name = types.QualifiedName(var_name)
 
-			Demangler._cached_name = var_name._to_core_struct()
+			Demangler._cached_name = core.BNDemanglerResult()
+			Demangler._cached_name.name = var_name._to_core_struct()
 			if type is not None:
-				out_type[0] = core.BNNewTypeReference(type.handle)
+				Demangler._cached_name.type = core.BNNewTypeReference(type.handle)
 			else:
-				out_type[0] = None
-			out_var_name[0] = Demangler._cached_name
+				Demangler._cached_name.type = None
+			result[0] = Demangler._cached_name
 			return True
 		except Exception:
 			log_error_for_exception("Unhandled Python exception in Demangler._demangle")
 			return False
 
-	def _free_var_name(self, ctxt, name):
+	def _free_result(self, ctxt, result):
 		try:
+			if result is not None and result.contents.type:
+				core.BNFreeType(result.contents.type)
 			Demangler._cached_name = None
 		except Exception:
-			log_error_for_exception("Unhandled Python exception in Demangler._free_var_name")
+			log_error_for_exception("Unhandled Python exception in Demangler._free_result")
 
 	def is_mangled_string(self, name: str) -> bool:
 		"""
@@ -434,20 +457,15 @@ class CoreDemangler(Demangler):
 
 	def demangle(self, arch: Architecture, name: str, view: Optional['binaryview.BinaryView'] = None,
 		simplify: bool = False) -> Optional[Tuple[Optional['types.Type'], 'types.QualifiedName']]:
-		out_type = ctypes.POINTER(core.BNType)()
-		out_var_name = core.BNQualifiedName()
+		result = core.BNDemanglerResult()
+		config = _demangler_config_for_context(arch, view, simplify)
 
-		view_handle = None
-		if view is not None:
-			view_handle = view.handle
-
-		if not core.BNDemanglerDemangleWithOptions(
-			self.handle, arch.handle, name, out_type, out_var_name, view_handle, simplify):
+		if not core.BNDemanglerTryDemangle(self.handle, name, config, result):
 			return None
 
 		result_type = None
-		if out_type:
-			result_type = types.Type.create(handle=out_type)
-		result_var_name = types.QualifiedName._from_core_struct(out_var_name)
-		core.BNFreeQualifiedName(out_var_name)
+		if result.type:
+			result_type = types.Type.create(handle=core.BNNewTypeReference(result.type))
+		result_var_name = types.QualifiedName._from_core_struct(result.name)
+		core.BNFreeDemanglerResult(result)
 		return result_type, result_var_name

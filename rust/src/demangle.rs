@@ -17,7 +17,7 @@
 use binaryninjacore_sys::*;
 use std::ffi::{c_char, c_void};
 
-use crate::architecture::CoreArchitecture;
+use crate::architecture::{ArchitectureExt, CoreArchitecture};
 use crate::binary_view::BinaryView;
 use crate::string::{raw_to_string, BnString, IntoCStr};
 use crate::types::{QualifiedName, Type};
@@ -25,6 +25,32 @@ use crate::types::{QualifiedName, Type};
 use crate::rc::*;
 
 pub type Result<R> = std::result::Result<R, ()>;
+
+fn collect_demangled_type_name(
+    res: bool,
+    out_type: *mut BNType,
+    mut out_name: *mut *mut std::os::raw::c_char,
+    out_size: usize,
+) -> Option<(QualifiedName, Option<Ref<Type>>)> {
+    match res {
+        true => {
+            assert!(!out_name.is_null());
+            let names: Vec<_> = unsafe { ArrayGuard::<BnString>::new(out_name, out_size, ()) }
+                .iter()
+                .map(str::to_string)
+                .collect();
+            unsafe { BNFreeDemangledName(&mut out_name, out_size) };
+
+            let out_type = match out_type.is_null() {
+                true => None,
+                false => Some(unsafe { Type::ref_from_raw(out_type) }),
+            };
+
+            Some((names.into(), out_type))
+        }
+        false => None,
+    }
+}
 
 pub fn demangle_generic(
     arch: &CoreArchitecture,
@@ -105,24 +131,7 @@ pub fn demangle_gnu3(
         )
     };
 
-    match res {
-        true => {
-            assert!(!out_name.is_null());
-            let names: Vec<_> = unsafe { ArrayGuard::<BnString>::new(out_name, out_size, ()) }
-                .iter()
-                .map(str::to_string)
-                .collect();
-            unsafe { BNFreeDemangledName(&mut out_name, out_size) };
-
-            let out_type = match out_type.is_null() {
-                true => None,
-                false => Some(unsafe { Type::ref_from_raw(out_type) }),
-            };
-
-            Some((names.into(), out_type))
-        }
-        false => None,
-    }
+    collect_demangled_type_name(res, out_type, out_name, out_size)
 }
 
 pub fn demangle_ms(
@@ -145,64 +154,7 @@ pub fn demangle_ms(
         )
     };
 
-    match res {
-        true => {
-            assert!(!out_name.is_null());
-            let names: Vec<_> = unsafe { ArrayGuard::<BnString>::new(out_name, out_size, ()) }
-                .iter()
-                .map(str::to_string)
-                .collect();
-            unsafe { BNFreeDemangledName(&mut out_name, out_size) };
-
-            let out_type = match out_type.is_null() {
-                true => None,
-                false => Some(unsafe { Type::ref_from_raw(out_type) }),
-            };
-
-            Some((names.into(), out_type))
-        }
-        false => None,
-    }
-}
-
-pub fn demangle_ms_with_view(
-    arch: &CoreArchitecture,
-    mangled_name: &str,
-    view: Option<&BinaryView>,
-) -> Option<(QualifiedName, Option<Ref<Type>>)> {
-    let mangled_name = mangled_name.to_cstr();
-    let mut out_type: *mut BNType = std::ptr::null_mut();
-    let mut out_name: *mut *mut std::os::raw::c_char = std::ptr::null_mut();
-    let mut out_size: usize = 0;
-    let res = unsafe {
-        BNDemangleMSWithOptions(
-            arch.handle,
-            mangled_name.as_ptr(),
-            &mut out_type,
-            &mut out_name,
-            &mut out_size,
-            view.map(|v| v.handle).unwrap_or(std::ptr::null_mut()),
-        )
-    };
-
-    match res {
-        true => {
-            assert!(!out_name.is_null());
-            let names: Vec<_> = unsafe { ArrayGuard::<BnString>::new(out_name, out_size, ()) }
-                .iter()
-                .map(str::to_string)
-                .collect();
-            unsafe { BNFreeDemangledName(&mut out_name, out_size) };
-
-            let out_type = match out_type.is_null() {
-                true => None,
-                false => Some(unsafe { Type::ref_from_raw(out_type) }),
-            };
-
-            Some((names.into(), out_type))
-        }
-        false => None,
-    }
+    collect_demangled_type_name(res, out_type, out_name, out_size)
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -232,47 +184,46 @@ impl Demangler {
         arch: &CoreArchitecture,
         name: &str,
         view: Option<&BinaryView>,
-    ) -> Option<(QualifiedName, Option<Ref<Type>>)> {
-        self.demangle_with_options(arch, name, view, false)
-    }
-
-    pub fn demangle_with_options(
-        &self,
-        arch: &CoreArchitecture,
-        name: &str,
-        view: Option<&BinaryView>,
         simplify: bool,
     ) -> Option<(QualifiedName, Option<Ref<Type>>)> {
         let name_bytes = name.to_cstr();
 
-        let mut out_type = std::ptr::null_mut();
-        let mut out_var_name = BNQualifiedName::default();
-
-        let view_ptr = match view {
-            Some(v) => v.handle,
-            None => std::ptr::null_mut(),
+        let platform = arch.standalone_platform();
+        let mut config = match view {
+            Some(v) => unsafe { BNGetDemanglerConfigForBinaryView(v.handle) },
+            None => unsafe {
+                BNGetDemanglerConfigForPlatform(
+                    platform
+                        .as_ref()
+                        .map(|p| p.handle)
+                        .unwrap_or(std::ptr::null_mut()),
+                    simplify,
+                )
+            },
         };
+        config.simplifyTemplates = simplify;
+
+        let mut result = BNDemanglerResult::default();
 
         let res = unsafe {
-            BNDemanglerDemangleWithOptions(
+            BNDemanglerTryDemangle(
                 self.handle,
-                arch.handle,
                 name_bytes.as_ref().as_ptr() as *const _,
-                &mut out_type,
-                &mut out_var_name,
-                view_ptr,
-                simplify,
+                &mut config,
+                &mut result,
             )
         };
 
         match res {
             true => {
-                let var_type = match out_type.is_null() {
+                let var_type = match result.type_.is_null() {
                     true => None,
-                    false => Some(unsafe { Type::ref_from_raw(out_type) }),
+                    false => Some(unsafe { Type::ref_from_raw(BNNewTypeReference(result.type_)) }),
                 };
+                let name = QualifiedName::from_raw(&result.name);
+                unsafe { BNFreeDemanglerResult(&mut result) };
 
-                Some((QualifiedName::from_owned_raw(out_var_name), var_type))
+                Some((name, var_type))
             }
             false => None,
         }
@@ -307,36 +258,42 @@ impl Demangler {
         }
         extern "C" fn cb_demangle<C>(
             ctxt: *mut c_void,
-            arch: *mut BNArchitecture,
             name: *const c_char,
-            out_type: *mut *mut BNType,
-            out_var_name: *mut BNQualifiedName,
-            view: *mut BNBinaryView,
-            simplify: bool,
+            config: *const BNDemanglerConfig,
+            result: *mut BNDemanglerResult,
         ) -> bool
         where
             C: CustomDemangler,
         {
             ffi_wrap!("CustomDemangler::cb_demangle", unsafe {
+                if config.is_null() || result.is_null() {
+                    return false;
+                }
+
                 let cmd = &*(ctxt as *const C);
-                let arch = CoreArchitecture::from_raw(arch);
                 let Some(name) = raw_to_string(name) else {
                     return false;
                 };
-                let view = match view.is_null() {
-                    false => Some(BinaryView::from_raw(view).to_owned()),
+                let config = &*config;
+                if config.platform.is_null() {
+                    return false;
+                }
+
+                let arch = CoreArchitecture::from_raw(BNGetPlatformArchitecture(config.platform));
+                let view = match config.view.is_null() {
+                    false => Some(BinaryView::from_raw(config.view).to_owned()),
                     true => None,
                 };
 
-                match cmd.demangle(&arch, &name, view, simplify) {
+                match cmd.demangle(&arch, &name, view, config.simplifyTemplates) {
                     Some((name, ty)) => {
                         // NOTE: Leaked to the caller, who must pick the ref up.
-                        *out_type = match ty {
+                        (*result).type_ = match ty {
                             Some(t) => Ref::into_raw(t).handle,
                             None => std::ptr::null_mut(),
                         };
-                        // NOTE: Leaked to be freed with `cb_free_var_name`.
-                        *out_var_name = QualifiedName::into_raw(name);
+                        // NOTE: Leaked to be freed with `cb_free_result`.
+                        (*result).name = QualifiedName::into_raw(name);
                         true
                     }
                     None => false,
@@ -344,10 +301,16 @@ impl Demangler {
             })
         }
 
-        extern "C" fn cb_free_var_name(_ctxt: *mut c_void, name: *mut BNQualifiedName) {
-            ffi_wrap!("CustomDemangler::cb_free_var_name", unsafe {
-                // TODO: What is the point of this free callback?
-                QualifiedName::free_raw(*name)
+        extern "C" fn cb_free_result(_ctxt: *mut c_void, result: *mut BNDemanglerResult) {
+            ffi_wrap!("CustomDemangler::cb_free_result", unsafe {
+                if result.is_null() {
+                    return;
+                }
+                if !(*result).type_.is_null() {
+                    BNFreeType((*result).type_);
+                    (*result).type_ = std::ptr::null_mut();
+                }
+                QualifiedName::free_raw((*result).name);
             })
         }
 
@@ -359,7 +322,7 @@ impl Demangler {
             context: ctxt as *mut c_void,
             isMangledString: Some(cb_is_mangled_string::<C>),
             demangle: Some(cb_demangle::<C>),
-            freeVarName: Some(cb_free_var_name),
+            freeResult: Some(cb_free_result),
         };
 
         unsafe {

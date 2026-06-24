@@ -2725,7 +2725,7 @@ Ref<Symbol> MachoView::DefineMachoSymbol(
 		{
 			QualifiedName demangledName;
 			Ref<Type> demangledType;
-			if (DemangleGeneric(m_arch, rawName, demangledType, demangledName, nullptr, m_simplifyTemplates))
+			if (DemangleGeneric(GetDefaultPlatform(), rawName, demangledType, demangledName, nullptr, m_simplifyTemplates))
 			{
 				shortName = demangledName.GetString();
 				fullName = shortName;

@@ -34,11 +34,12 @@ Ref<Symbol> RTTI::GetRealSymbol(BinaryView *view, uint64_t relocAddr, uint64_t s
 }
 
 
-std::optional<std::string> RTTI::DemangleNameMS(BinaryView* view, bool allowMangled, const std::string &mangledName)
+std::optional<std::string> RTTI::DemangleNameMS(
+    BinaryView* view, bool allowMangled, const std::string &mangledName, bool simplifyTemplates)
 {
     QualifiedName demangledName = {};
     Ref<Type> outType = {};
-    if (!DemangleMS(view->GetDefaultArchitecture(), mangledName, outType, demangledName, view))
+    if (!DemangleMS(view->GetDefaultPlatform(), mangledName, outType, demangledName, simplifyTemplates))
         return DemangleNameLLVM(allowMangled, mangledName);
     return NormalizeRTTIClassName(demangledName.GetString());
 }
@@ -62,7 +63,7 @@ std::optional<std::string> RTTI::DemangleNameGNU3(BinaryView* view, bool allowMa
     if (adjustedMangledName.rfind("_Z", 0) != 0)
         adjustedMangledName = "_Z" + adjustedMangledName;
 
-    if (!DemangleGNU3(view->GetDefaultArchitecture(), adjustedMangledName, outType, demangledName, true))
+    if (!DemangleGNU3(view->GetDefaultPlatform(), adjustedMangledName, outType, demangledName, true))
         return allowMangled ? std::optional(mangledName) : std::nullopt;
 
     // Because we might have a generic name such as "PackageListGui::PackageListGui" returned, we must attempt to

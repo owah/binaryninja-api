@@ -6,10 +6,16 @@ use binaryninja::demangle::{
 use binaryninja::headless::Session;
 use binaryninja::rc::Ref;
 use binaryninja::types::{QualifiedName, Type};
+use std::sync::OnceLock;
+
+fn session() -> &'static Session {
+    static SESSION: OnceLock<Session> = OnceLock::new();
+    SESSION.get_or_init(|| Session::new().expect("Failed to initialize session"))
+}
 
 #[test]
 fn test_demangler_simple() {
-    let _session = Session::new().expect("Failed to initialize session");
+    let _session = session();
     let placeholder_arch = CoreArchitecture::by_name("x86_64").expect("x86_64 exists");
     // Example LLVM-style mangled name
     let llvm_mangled = "_Z3fooi"; // "foo(int)" in LLVM mangling
@@ -41,7 +47,7 @@ fn test_demangler_simple() {
 
 #[test]
 fn test_custom_demangler() {
-    let _session = Session::new().expect("Failed to initialize session");
+    let _session = session();
     struct TestDemangler;
 
     impl CustomDemangler for TestDemangler {

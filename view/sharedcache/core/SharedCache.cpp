@@ -13,7 +13,7 @@ std::pair<std::string, Ref<Type>> CacheSymbol::DemangledName(BinaryView &view) c
 	QualifiedName qname;
 	Ref<Type> outType;
 	std::string shortName = name;
-	if (DemangleGeneric(view.GetDefaultArchitecture(), name, outType, qname, &view, true))
+	if (DemangleGeneric(view.GetDefaultPlatform(), name, outType, qname, &view, true))
 		shortName = qname.GetString();
 	return { shortName, outType };
 }

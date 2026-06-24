@@ -17,6 +17,7 @@
 
 #include "demangle_msvc.h"
 #include "demangler/demangled_template_simplifier.h"
+#include "base/unicode.h"
 #ifdef BINARYNINJACORE_LIBRARY
 #include "unicode.h"
 #endif
@@ -34,8 +35,6 @@ using namespace std;
 #endif
 
 
-// The largest observed depth in a real-world corpus of roughly 200k MSVC symbols was 54.
-static constexpr size_t MAX_DEMANGLE_NESTING_DEPTH = 256;
 static constexpr size_t MAX_ENCODED_NUMBER_HEX_DIGITS = 16;
 static constexpr size_t MAX_BACKREFS = 10;
 
@@ -241,61 +240,19 @@ void Demangle::BackrefContextSwitch::Swap(BackrefList& left, BackrefList& right)
 
 
 
-Demangle::Demangle(Architecture* arch, _STD_STRING  mangledName) :
+Demangle::Demangle(Platform& platform, _STD_STRING  mangledName) :
 	m_mangledName(std::move(mangledName)),
 	m_reader(m_mangledName),
-	m_arch(arch),
-	m_platform(nullptr),
-	m_view(nullptr)
+	m_platform(platform)
 {
 }
 
-
-Demangle::Demangle(Ref<Platform> platform, _STD_STRING  mangledName) :
-	m_mangledName(std::move(mangledName)),
-	m_reader(m_mangledName),
-	m_arch(nullptr),
-	m_platform(std::move(platform)),
-	m_view(nullptr)
-{
-}
-
-
-Demangle::Demangle(Ref<BinaryView> view, _STD_STRING  mangledName) :
-	m_mangledName(std::move(mangledName)),
-	m_reader(m_mangledName),
-	m_arch(nullptr),
-	m_platform(nullptr),
-	m_view(std::move(view))
-{
-}
-
-
-Demangle::NestingGuard::NestingGuard(Demangle& demangler) : m_demangler(demangler)
-{
-	m_demangler.m_nestingDepth++;
-	if (m_demangler.m_nestingDepth > MAX_DEMANGLE_NESTING_DEPTH)
-	{
-		m_demangler.m_nestingDepth--;
-		throw DemangleException("Detected adversarial mangled string");
-	}
-}
-
-
-Demangle::NestingGuard::~NestingGuard()
-{
-	m_demangler.m_nestingDepth--;
-}
-
-
-void Demangle::Reset(Architecture* arch, const _STD_STRING& mangledName)
+void Demangle::Reset(Platform& platform, const _STD_STRING& mangledName)
 {
 	m_mangledName = mangledName;
 	m_reader.Reset(m_mangledName);
 	m_backrefList.Clear();
-	m_arch = arch;
-	m_platform = nullptr;
-	m_view = nullptr;
+	m_platform = std::ref(platform);
 	m_templateParamDepth = 0;
 	m_nestingDepth = 0;
 }
@@ -328,13 +285,19 @@ void Demangle::RewriteTemplateBackrefName(NameList& typeName, const BackrefList&
 _STD_STRING Demangle::FormatTypeAndName(const DemangledTypeNode& type, const NameList& name) const
 {
 	StringList nameSegments = FinalizeNameList(name);
+	Platform& platform = GetRenderingPlatform();
 	if (type.GetNameType() == OperatorReturnTypeNameType)
 	{
-		Ref<Type> finalizedType = type.Finalize(m_platform.GetPtr());
+		Ref<Type> finalizedType = type.Finalize(platform);
 		if (finalizedType)
 			return finalizedType->GetTypeAndName(QualifiedName(nameSegments));
 	}
-	return type.GetTypeAndName(nameSegments);
+	return type.GetTypeAndName(nameSegments, platform);
+}
+
+Platform& Demangle::GetRenderingPlatform() const
+{
+	return m_platform;
 }
 
 DemangledTypeNode Demangle::DemangleReferencedSymbolValue(BackrefList& varList)
@@ -369,7 +332,7 @@ DemangledTypeNode Demangle::DemangleAutoNonTypeTemplateParam(BackrefList& varLis
 DemangledTypeNode Demangle::DemangleVarType(BackrefList& varList, bool isReturn,
 	bool includeImplicitThis, DemangledTypeNode::NodeRef* outTypeBackref, TypeBackrefMode typeBackrefMode)
 {
-	NestingGuard nestingGuard(*this);
+	NestingGuard nestingGuard(m_nestingDepth);
 	MSVC_TRACE("{}: '{}' - {}", __FUNCTION__, m_reader.GetRaw(), varList.nameList.size());
 	if (outTypeBackref)
 		*outTypeBackref = nullptr;
@@ -1354,7 +1317,7 @@ DemangledNamePart Demangle::DemangleTemplateInstantiationNameInLocalContext(Back
 
 void Demangle::DemangleTemplateParams(_STD_VECTOR<DemangledTypeNode::Param>& params, BackrefList& nameBackrefList, DemangledNamePart& out)
 {
-	NestingGuard nestingGuard(*this);
+	NestingGuard nestingGuard(m_nestingDepth);
 	params.clear();
 	const bool nestedTemplateContext = (m_templateParamDepth > 0);
 	struct NameBackrefScopeGuard
@@ -1656,9 +1619,10 @@ bool Demangle::FunctionTypeHasPointerSuffix(char functionType)
 }
 
 
-_STD_STRING Demangle::FormatFunctionScopeSignature(const DemangledTypeNode& type, const NameList& scopeName)
+_STD_STRING Demangle::FormatFunctionScopeSignature(
+	const DemangledTypeNode& type, const NameList& scopeName, Platform& platform)
 {
-	_STD_STRING out = type.GetTypeAndName(FinalizeNameList(scopeName));
+	_STD_STRING out = type.GetTypeAndName(FinalizeNameList(scopeName), platform);
 	while (!out.empty() && out.back() == ' ')
 		out.pop_back();
 	return out;
@@ -1689,7 +1653,8 @@ void Demangle::AppendLocalScope(NameList& nameList, BackrefList& nameBackrefList
 		scopeFunctionType, FunctionTypeHasPointerSuffix(ft), nameBackrefList).type;
 
 	PrependNameComponent(nameList, MakeNameSegment("`" + to_string(scopeOrdinal) + "'"));
-	PrependNameComponent(nameList, MakeNameSegment("`" + FormatFunctionScopeSignature(scopeType, scopeName) + "'"));
+	PrependNameComponent(
+		nameList, MakeNameSegment("`" + FormatFunctionScopeSignature(scopeType, scopeName, GetRenderingPlatform()) + "'"));
 }
 
 
@@ -1759,7 +1724,7 @@ void Demangle::DemangleName(NameList& nameList,
                             BackrefList& nameBackrefList,
                             bool typeNameContext)
 {
-	NestingGuard nestingGuard(*this);
+	NestingGuard nestingGuard(m_nestingDepth);
 	// NameList is stored outermost-first for QualifiedName, but MSVC encodes
 	// names leaf-first. Ordinary parsed components are prepended; constructor
 	// and destructor branches recurse to parse the class scope, then append the
@@ -1783,7 +1748,7 @@ void Demangle::DemangleName(NameList& nameList,
 		}
 		else if (m_reader.ConsumeIf("??"))
 		{
-			if (m_nestingDepth + strippedNestedNamePrefixes >= MAX_DEMANGLE_NESTING_DEPTH)
+			if (m_nestingDepth + strippedNestedNamePrefixes >= MaxDemangleNestingDepth)
 				throw DemangleException("Demangle nesting depth exceeded");
 			strippedNestedNamePrefixes++;
 			continue;
@@ -2120,7 +2085,7 @@ void Demangle::ApplySymbolFunctionContext(DemangledFunction& function, NameList&
 Demangle::DemangledFunction Demangle::DemangleFunction(BNNameType classFunctionType, bool pointerSuffix,
 	BackrefList& nameBackrefList, int funcClass)
 {
-	NestingGuard nestingGuard(*this);
+	NestingGuard nestingGuard(m_nestingDepth);
 	MSVC_TRACE("{}: '{}'", __FUNCTION__, m_reader.GetRaw());
 	bool _const = false, _volatile = false;
 	uint8_t suffix = 0;
@@ -2440,7 +2405,7 @@ Demangle::DemangleContext Demangle::DemangleSymbol()
 
 Demangle::DemangleContext Demangle::DemangleSymbol(BackrefList& backrefList)
 {
-	NestingGuard nestingGuard(*this);
+	NestingGuard nestingGuard(m_nestingDepth);
 	MSVC_TRACE("{}: '{}'", __FUNCTION__, m_reader.GetRaw());
 	BNNameType classFunctionType = NoNameType;
 	NameList varName;
@@ -2611,41 +2576,11 @@ Demangle::DemangleContext Demangle::DemangleSymbol(BackrefList& backrefList)
 	return finishContext();
 }
 
-std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(BinaryView* view, bool simplifyTemplates)
+std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(bool simplifyTemplates)
 {
 	DemangleContext context = DemangleSymbol();
 	if (m_reader.Length() != 0)
 		LogDebugF("Demangling Succeeded with trailing characters '{}' in '{}'", m_reader.GetRaw(), m_mangledName);
-
-	Ref<Platform> platform = m_platform;
-	if (!platform && view)
-		platform = view->GetDefaultPlatform();
-
-	Architecture* arch = m_arch;
-#ifdef BINARYNINJACORE_LIBRARY
-	if (!arch && platform)
-		arch = platform->GetArchitecture();
-	if (!arch && view)
-		arch = view->GetDefaultArchitecture();
-#else
-	Ref<Architecture> viewArch;
-	Ref<Architecture> platformArch;
-	if (!arch && platform)
-	{
-		platformArch = platform->GetArchitecture();
-		arch = platformArch.GetPtr();
-	}
-	if (!arch && view)
-	{
-		viewArch = view->GetDefaultArchitecture();
-		arch = viewArch.GetPtr();
-	}
-#endif
-	if (!arch)
-		throw DemangleException();
-
-	if (!platform)
-		platform = arch->GetStandalonePlatform();
 
 	if (simplifyTemplates)
 	{
@@ -2653,17 +2588,11 @@ std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(BinaryView* view, bool si
 		DemangledTemplateSimplifier::SimplifyNameSegmentsInPlace(context.name);
 	}
 
-	return {context.type.Finalize(platform.GetPtr()), QualifiedName(FinalizeNameList(context.name))};
+	return {context.type.Finalize(m_platform), QualifiedName(FinalizeNameList(context.name))};
 }
 
-std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(bool simplifyTemplates)
-{
-	return Finalize(m_view.GetPtr(), simplifyTemplates);
-}
-
-template <typename DemangleBody>
-static bool DemangleMSImpl(const _STD_STRING& mangledName, Ref<Type>& outType, QualifiedName& outVarName,
-	DemangleBody&& demangleBody)
+static bool DemangleMSWithPlatform(Platform& platform, const _STD_STRING& mangledName, Ref<Type>& outType,
+	QualifiedName& outVarName, bool simplifyTemplates)
 {
 	outType = nullptr;
 	if (mangledName.empty() || (mangledName[0] != '?' && mangledName[0] != '.'))
@@ -2671,7 +2600,9 @@ static bool DemangleMSImpl(const _STD_STRING& mangledName, Ref<Type>& outType, Q
 
 	try
 	{
-		auto result = demangleBody();
+		thread_local Demangle demangle(platform, mangledName);
+		demangle.Reset(platform, mangledName);
+		auto result = demangle.Finalize(simplifyTemplates);
 		outType = std::move(result.first);
 		outVarName = std::move(result.second);
 		return true;
@@ -2688,111 +2619,11 @@ static bool DemangleMSImpl(const _STD_STRING& mangledName, Ref<Type>& outType, Q
 	}
 }
 
-bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, const Ref<BinaryView>& view)
-{
-	return DemangleMS(arch, mangledName, outType, outVarName, view, false);
-}
-
-bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, const Ref<BinaryView>& view, bool simplifyTemplates)
-{
-	if (view)
-	{
-		return DemangleMSImpl(mangledName, outType, outVarName, [&]() {
-			Demangle demangle(arch, mangledName);
-			return demangle.Finalize(view.GetPtr(), simplifyTemplates);
-		});
-	}
-	return DemangleMS(arch, mangledName, outType, outVarName, simplifyTemplates);
-}
-
-bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, BinaryView* view)
-{
-	return DemangleMS(arch, mangledName, outType, outVarName, view, false);
-}
-
-bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, BinaryView* view, bool simplifyTemplates)
-{
-	if (view)
-		return DemangleMS(arch, mangledName, outType, outVarName, Ref<BinaryView>(view), simplifyTemplates);
-	return DemangleMS(arch, mangledName, outType, outVarName, simplifyTemplates);
-}
-
-bool Demangle::DemangleMS(Platform* platform, const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName)
-{
-	return DemangleMS(platform, mangledName, outType, outVarName, false);
-}
-
-bool Demangle::DemangleMS(Platform* platform, const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, bool simplifyTemplates)
-{
-	outType = nullptr;
-	if (!platform)
-		return false;
-
-	return DemangleMSImpl(mangledName, outType, outVarName, [&]() {
-		Demangle demangle(Ref<Platform>(platform), mangledName);
-		return demangle.Finalize(simplifyTemplates);
-	});
-}
-
-bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName)
-{
-	return DemangleMS(arch, mangledName, outType, outVarName, false);
-}
-
-bool Demangle::DemangleMS(Architecture* arch, const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, bool simplifyTemplates)
-{
-	return DemangleMSImpl(mangledName, outType, outVarName, [&]() {
-		thread_local Demangle demangle(arch, mangledName);
-		demangle.Reset(arch, mangledName);
-		return demangle.Finalize(simplifyTemplates);
-	});
-}
-
-
-bool Demangle::DemangleMS(const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, const Ref<BinaryView>& view)
-{
-	return DemangleMS(mangledName, outType, outVarName, view, false);
-}
-
-bool Demangle::DemangleMS(const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, const Ref<BinaryView>& view, bool simplifyTemplates)
-{
-	return DemangleMSImpl(mangledName, outType, outVarName, [&]() {
-		// Can't use thread_local here — BinaryView overload needs platform/view state
-		Demangle demangle(view, mangledName);
-		return demangle.Finalize(simplifyTemplates);
-	});
-}
-
-bool Demangle::DemangleMS(const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, BinaryView* view)
-{
-	return DemangleMS(mangledName, outType, outVarName, view, false);
-}
-
-bool Demangle::DemangleMS(const _STD_STRING& mangledName, Ref<Type>& outType,
-                          QualifiedName& outVarName, BinaryView* view, bool simplifyTemplates)
-{
-	outType = nullptr;
-	if (!view)
-		return false;
-	return DemangleMS(mangledName, outType, outVarName, Ref<BinaryView>(view), simplifyTemplates);
-}
-
 
 class MSDemangler: public Demangler
 {
 public:
-	MSDemangler(): Demangler("MS")
+	MSDemangler(): Demangler("msvc")
 	{
 	}
 	~MSDemangler() override = default;
@@ -2802,34 +2633,10 @@ public:
 		return !name.empty() && (name[0] == '?' || name[0] == '.');
 	}
 
-#ifdef BINARYNINJACORE_LIBRARY
-	bool Demangle(Architecture* arch, const _STD_STRING& name, Ref<Type>& outType, QualifiedName& outVarName,
-	                      BinaryView* view) override
-#else
-	virtual bool Demangle(Ref<Architecture> arch, const _STD_STRING& name, Ref<Type>& outType, QualifiedName& outVarName,
-	                      Ref<BinaryView> view, bool simplify) override
-#endif
+	bool Demangle(const _STD_STRING& name, const DemanglerConfig& config, DemanglerResult& result) override
 	{
-#ifdef BINARYNINJACORE_LIBRARY
-		if (view)
-			return Demangle::DemangleMS(arch, name, outType, outVarName, view);
-		return Demangle::DemangleMS(arch, name, outType, outVarName);
-#else
-		if (view)
-			return Demangle::DemangleMS(arch, name, outType, outVarName, view, simplify);
-		return Demangle::DemangleMS(arch, name, outType, outVarName, simplify);
-#endif
+		return DemangleMSWithPlatform(config.GetPlatform(), name, result.type, result.name, config.simplifyTemplates);
 	}
-
-#ifdef BINARYNINJACORE_LIBRARY
-	bool DemangleWithOptions(Architecture* arch, const _STD_STRING& name, Ref<Type>& outType,
-		QualifiedName& outVarName, BinaryView* view, bool simplify) override
-	{
-		if (view)
-			return Demangle::DemangleMS(arch, name, outType, outVarName, view, simplify);
-		return Demangle::DemangleMS(arch, name, outType, outVarName, simplify);
-	}
-#endif
 };
 
 extern "C"

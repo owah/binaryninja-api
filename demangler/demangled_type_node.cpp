@@ -18,6 +18,7 @@
 #endif
 #include "base/assertions.h"
 #include <algorithm>
+#include <fmt/format.h>
 
 #ifdef BINARYNINJACORE_LIBRARY
 using namespace BinaryNinjaCore;
@@ -34,6 +35,68 @@ namespace
 	static constexpr uint8_t DemangledRestrictBit = 1u << 2;
 	static constexpr uint8_t DemangledReferenceBit = 1u << 3;
 	static constexpr uint8_t DemangledLvalueBit = 1u << 4;
+
+	class DemanglerFallbackArchitecture : public Architecture
+	{
+	public:
+		DemanglerFallbackArchitecture() : Architecture("demangler_fallback") {}
+
+		BNEndianness GetEndianness() const override { return LittleEndian; }
+		size_t GetAddressSize() const override { return 8; }
+		size_t GetDefaultIntegerSize() const override { return 4; }
+		size_t GetInstructionAlignment() const override { return 1; }
+		size_t GetMaxInstructionLength() const override { return 1; }
+		size_t GetOpcodeDisplayLength() const override { return 1; }
+
+#ifdef BINARYNINJACORE_LIBRARY
+		bool GetInstructionInfo(const uint8_t*, uint64_t, size_t, InstructionInfo&) override { return false; }
+		bool GetInstructionText(const uint8_t*, uint64_t, size_t&, vector<InstructionTextToken>&) override { return false; }
+		bool GetInstructionTextWithContext(const uint8_t*, uint64_t, size_t&, void*, vector<InstructionTextToken>&) override { return false; }
+		bool GetInstructionLowLevelIL(const uint8_t*, uint64_t, size_t&, LowLevelILFunction&) override { return false; }
+		void AnalyzeBasicBlocks(Function&, BNBasicBlockAnalysisContext*) override {}
+		bool LiftFunction(LowLevelILFunction&, BNFunctionLifterContext*) override { return false; }
+		void FreeFunctionArchContext(void*) override {}
+		string GetRegisterName(uint32_t) override { return {}; }
+		string GetFlagName(uint32_t) override { return {}; }
+		string GetFlagWriteTypeName(uint32_t) override { return {}; }
+		string GetSemanticFlagClassName(uint32_t) override { return {}; }
+		string GetSemanticFlagGroupName(uint32_t) override { return {}; }
+		vector<uint32_t> GetFullWidthRegisters() override { return {}; }
+		vector<uint32_t> GetAllRegisters() override { return {}; }
+		vector<uint32_t> GetAllFlags() override { return {}; }
+		vector<uint32_t> GetAllFlagWriteTypes() override { return {}; }
+		vector<uint32_t> GetAllSemanticFlagClasses() override { return {}; }
+		vector<uint32_t> GetAllSemanticFlagGroups() override { return {}; }
+		BNFlagRole GetFlagRole(uint32_t, uint32_t = 0) override { return SpecialFlagRole; }
+		vector<uint32_t> GetFlagsRequiredForFlagCondition(BNLowLevelILFlagCondition, uint32_t = 0) override { return {}; }
+		vector<uint32_t> GetFlagsRequiredForSemanticFlagGroup(uint32_t) override { return {}; }
+		map<uint32_t, BNLowLevelILFlagCondition> GetFlagConditionsForSemanticFlagGroup(uint32_t) override { return {}; }
+		uint32_t GetSemanticClassForFlagWriteType(uint32_t) override { return 0; }
+		BNRegisterInfo GetRegisterInfo(uint32_t) override { return {}; }
+		uint32_t GetStackPointerRegister() override { return 0; }
+		BNIntrinsicClass GetIntrinsicClass(uint32_t) override { return GeneralIntrinsicClass; }
+		string GetIntrinsicName(uint32_t) override { return {}; }
+		vector<uint32_t> GetAllIntrinsics() override { return {}; }
+		vector<NameAndType> GetIntrinsicInputs(uint32_t) override { return {}; }
+		vector<Confidence<Ref<Type>>> GetIntrinsicOutputs(uint32_t) override { return {}; }
+		bool CanAssemble() override { return false; }
+		bool Assemble(const string&, uint64_t, DataBuffer&, string&) override { return false; }
+		bool IsNeverBranchPatchAvailable(const uint8_t*, uint64_t, size_t) override { return false; }
+		bool IsAlwaysBranchPatchAvailable(const uint8_t*, uint64_t, size_t) override { return false; }
+		bool IsInvertBranchPatchAvailable(const uint8_t*, uint64_t, size_t) override { return false; }
+		bool IsSkipAndReturnZeroPatchAvailable(const uint8_t*, uint64_t, size_t) override { return false; }
+		bool IsSkipAndReturnValuePatchAvailable(const uint8_t*, uint64_t, size_t) override { return false; }
+		bool ConvertToNop(uint8_t*, uint64_t, size_t) override { return false; }
+		bool AlwaysBranch(uint8_t*, uint64_t, size_t) override { return false; }
+		bool InvertBranch(uint8_t*, uint64_t, size_t) override { return false; }
+		bool SkipAndReturnValue(uint8_t*, uint64_t, size_t, uint64_t) override { return false; }
+		Architecture* RegisterArchitectureHook(BNCustomArchitecture*) override { return nullptr; }
+#else
+		bool GetInstructionInfo(const uint8_t*, uint64_t, size_t, InstructionInfo&) override { return false; }
+		bool GetInstructionText(const uint8_t*, uint64_t, size_t&, vector<InstructionTextToken>&) override { return false; }
+		bool GetInstructionLowLevelIL(const uint8_t*, uint64_t, size_t&, LowLevelILFunction&) override { return false; }
+#endif
+	};
 
 	static void AppendPointerSuffixToken(string& out, const char* token)
 	{
@@ -65,7 +128,7 @@ namespace
 	}
 
 	static void AppendTemplateArgumentList(string& out, const vector<DemangledTypeNode::Param>& args,
-		bool spaceAfterComma, Platform* platform)
+		bool spaceAfterComma, Platform& platform)
 	{
 		if (args.empty())
 			return;
@@ -107,92 +170,56 @@ namespace
 		return empty;
 	}
 
-	static size_t ResolveAddressWidth(const Platform* platform)
+	static size_t ResolveAddressWidth(const Platform& platform)
 	{
-		if (platform)
-			return platform->GetAddressSize();
-		return 8;
+		return platform.GetAddressSize();
 	}
 
-	static size_t ResolveDefaultIntegerWidth(const Platform* platform)
+	static size_t ResolveDefaultIntegerWidth(const Platform& platform)
 	{
-		if (platform)
-		{
-#ifdef BINARYNINJACORE_LIBRARY
-			Architecture* platformArch = platform->GetArchitecture();
-#else
-			Ref<Architecture> platformArch = platform->GetArchitecture();
-#endif
-			if (platformArch)
-				return platformArch->GetDefaultIntegerSize();
-		}
-		return 4;
+		auto platformArch = platform.GetArchitecture();
+		return platformArch->GetDefaultIntegerSize();
 	}
 
-	static Ref<CallingConvention> ResolveCallingConvention(BNCallingConventionName cc, const Platform* platform)
+	static Ref<CallingConvention> ResolveCallingConvention(BNCallingConventionName cc, const Platform& platform)
 	{
-#ifndef BINARYNINJACORE_LIBRARY
-		Ref<Architecture> platformArch;
-#endif
-		Architecture* arch = nullptr;
-		if (platform)
-		{
-#ifdef BINARYNINJACORE_LIBRARY
-			arch = platform->GetArchitecture();
-#else
-			platformArch = platform->GetArchitecture();
-			arch = platformArch.GetPtr();
-#endif
-		}
+		auto platformArch = platform.GetArchitecture();
+		Architecture* arch = platformArch;
 
 		switch (cc)
 		{
 		case CdeclCallingConvention:
-			if (platform)
-			{
-				if (auto platformCC = platform->GetCdeclCallingConvention())
-					return platformCC;
-			}
-			if (arch)
-			{
-				if (auto archCC = arch->GetCdeclCallingConvention())
-					return archCC;
-			}
-			return arch ? arch->GetCallingConventionByName("cdecl") : nullptr;
+			if (auto platformCC = platform.GetCdeclCallingConvention())
+				return platformCC;
+			if (auto archCC = arch->GetCdeclCallingConvention())
+				return archCC;
+			return arch->GetCallingConventionByName("cdecl");
 		case STDCallCallingConvention:
-			if (platform)
-			{
-				if (auto platformCC = platform->GetStdcallCallingConvention())
-					return platformCC;
-			}
-			if (arch)
-			{
-				if (auto archCC = arch->GetStdcallCallingConvention())
-					return archCC;
-			}
-			return arch ? arch->GetCallingConventionByName("stdcall") : nullptr;
+			if (auto platformCC = platform.GetStdcallCallingConvention())
+				return platformCC;
+			if (auto archCC = arch->GetStdcallCallingConvention())
+				return archCC;
+			return arch->GetCallingConventionByName("stdcall");
 		case FastcallCallingConvention:
-			if (platform)
-			{
-				if (auto platformCC = platform->GetFastcallCallingConvention())
-					return platformCC;
-			}
-			if (arch)
-			{
-				if (auto archCC = arch->GetFastcallCallingConvention())
-					return archCC;
-				return arch->GetCallingConventionByName("fastcall");
-			}
-			return nullptr;
+			if (auto platformCC = platform.GetFastcallCallingConvention())
+				return platformCC;
+			if (auto archCC = arch->GetFastcallCallingConvention())
+				return archCC;
+			return arch->GetCallingConventionByName("fastcall");
 		case ThisCallCallingConvention:
-			if (arch)
-				return arch->GetCallingConventionByName("thiscall");
-			return nullptr;
+			return arch->GetCallingConventionByName("thiscall");
 		default:
 			return nullptr;
 		}
 	}
 
+}
+
+Platform& GetDemanglerFallbackPlatform()
+{
+	static DemanglerFallbackArchitecture arch;
+	static auto platform = arch.GetStandalonePlatform();
+	return *platform;
 }
 
 #define HAS_POINTER_SUFFIX(bit) ((m_pointerSuffixBits & (bit)) != 0)
@@ -267,7 +294,7 @@ void DemangledNamePart::ClearTemplateArguments()
 }
 
 
-void DemangledNamePart::AppendString(string& out, Platform* platform) const
+void DemangledNamePart::AppendString(string& out, Platform& platform) const
 {
 	out += m_base;
 	if (m_baseTypeSuffix)
@@ -281,7 +308,7 @@ void DemangledNamePart::AppendString(string& out, Platform* platform) const
 }
 
 
-string DemangledNamePart::GetString(Platform* platform) const
+string DemangledNamePart::GetString(Platform& platform) const
 {
 	string out;
 	AppendString(out, platform);
@@ -587,7 +614,7 @@ uint8_t DemangledTypeNode::PointerSuffixBit(BNPointerSuffix ps)
 }
 
 
-size_t DemangledTypeNode::ResolveWidth(size_t width, WidthKind widthKind, const Platform* platform)
+size_t DemangledTypeNode::ResolveWidth(size_t width, WidthKind widthKind, const Platform& platform)
 {
 	switch (widthKind)
 	{
@@ -979,7 +1006,7 @@ bool DemangledTypeNode::IsStructurallyEqual(const DemangledTypeNode& other) cons
 }
 
 
-StringList DemangledTypeNode::RenderTypeNameSegments(Platform* platform) const
+StringList DemangledTypeNode::RenderTypeNameSegments(Platform& platform) const
 {
 	StringList result;
 	if (std::get_if<PostfixPayload>(&m_payload))
@@ -1028,7 +1055,7 @@ bool DemangledTypeNode::HasPostfixType() const
 }
 
 
-void DemangledTypeNode::AppendPostfixType(string& out, Platform* platform) const
+void DemangledTypeNode::AppendPostfixType(string& out, Platform& platform) const
 {
 	const auto* payload = std::get_if<PostfixPayload>(&m_payload);
 	if (!payload)
@@ -1041,7 +1068,7 @@ void DemangledTypeNode::AppendPostfixType(string& out, Platform* platform) const
 }
 
 
-void DemangledTypeNode::AppendUnaryExpression(string& out, Platform* platform) const
+void DemangledTypeNode::AppendUnaryExpression(string& out, Platform& platform) const
 {
 	const auto* payload = std::get_if<UnaryExpressionPayload>(&m_payload);
 	if (!payload)
@@ -1054,7 +1081,7 @@ void DemangledTypeNode::AppendUnaryExpression(string& out, Platform* platform) c
 }
 
 
-void DemangledTypeNode::AppendBinaryExpression(string& out, Platform* platform) const
+void DemangledTypeNode::AppendBinaryExpression(string& out, Platform& platform) const
 {
 	const auto* payload = std::get_if<BinaryExpressionPayload>(&m_payload);
 	if (!payload)
@@ -1094,7 +1121,7 @@ void DemangledTypeNode::AppendPointerSuffix(string& out) const
 
 
 void DemangledTypeNode::AppendNamePartList(
-	string& out, const DemangledQualifiedName& name, Platform* platform)
+	string& out, const DemangledQualifiedName& name, Platform& platform)
 {
 	if (name.empty())
 		return;
@@ -1107,14 +1134,14 @@ void DemangledTypeNode::AppendNamePartList(
 }
 
 
-void DemangledTypeNode::AppendTypeName(string& out, Platform* platform) const
+void DemangledTypeNode::AppendTypeName(string& out, Platform& platform) const
 {
 	if (auto payload = std::get_if<NamedTypePayload>(&m_payload))
 		AppendNamePartList(out, payload->name, platform);
 }
 
 
-string DemangledTypeNode::GetStringBeforeName(Platform* platform) const
+string DemangledTypeNode::GetStringBeforeName(Platform& platform) const
 {
 	string out;
 	AppendBeforeName(out, nullptr, platform);
@@ -1122,7 +1149,7 @@ string DemangledTypeNode::GetStringBeforeName(Platform* platform) const
 }
 
 
-string DemangledTypeNode::GetStringAfterName(Platform* platform) const
+string DemangledTypeNode::GetStringAfterName(Platform& platform) const
 {
 	string out;
 	AppendAfterName(out, nullptr, platform);
@@ -1130,7 +1157,7 @@ string DemangledTypeNode::GetStringAfterName(Platform* platform) const
 }
 
 
-void DemangledTypeNode::AppendBeforeName(string& out, const DemangledTypeNode* parentType, Platform* platform) const
+void DemangledTypeNode::AppendBeforeName(string& out, const DemangledTypeNode* parentType, Platform& platform) const
 {
 	switch (GetPayloadClass())
 	{
@@ -1325,7 +1352,7 @@ void DemangledTypeNode::AppendBeforeName(string& out, const DemangledTypeNode* p
 }
 
 
-void DemangledTypeNode::AppendAfterName(string& out, const DemangledTypeNode* parentType, Platform* platform) const
+void DemangledTypeNode::AppendAfterName(string& out, const DemangledTypeNode* parentType, Platform& platform) const
 {
 	switch (GetPayloadClass())
 	{
@@ -1375,7 +1402,7 @@ void DemangledTypeNode::AppendAfterName(string& out, const DemangledTypeNode* pa
 		const auto& payload = std::get<ArrayPayload>(m_payload);
 		if (parentType && parentType->GetPayloadClass() == PointerTypeClass)
 			out += ")";
-		out += fmt::bnformat("[{:#x}]", payload.elements);
+		out += fmt::format("[{:#x}]", payload.elements);
 		if (payload.childType)
 			payload.childType->AppendAfterName(out, this, platform);
 		break;
@@ -1386,7 +1413,7 @@ void DemangledTypeNode::AppendAfterName(string& out, const DemangledTypeNode* pa
 }
 
 
-void DemangledTypeNode::AppendString(string& out, Platform* platform) const
+void DemangledTypeNode::AppendString(string& out, Platform& platform) const
 {
 	AppendBeforeName(out, nullptr, platform);
 	size_t beforeEnd = out.size(); // track where "before" ends
@@ -1409,7 +1436,7 @@ void DemangledTypeNode::AppendString(string& out, Platform* platform) const
 }
 
 
-string DemangledTypeNode::GetString(Platform* platform) const
+string DemangledTypeNode::GetString(Platform& platform) const
 {
 	string out;
 	AppendString(out, platform);
@@ -1417,7 +1444,7 @@ string DemangledTypeNode::GetString(Platform* platform) const
 }
 
 
-string DemangledTypeNode::GetTypeAndName(const StringList& name, Platform* platform) const
+string DemangledTypeNode::GetTypeAndName(const StringList& name, Platform& platform) const
 {
 	const string before = GetStringBeforeName(platform);
 	const string qName = JoinNameList(name);
@@ -1451,7 +1478,7 @@ uint8_t DemangledTypeNode::GetValueConfidence() const
 }
 
 
-Ref<Type> DemangledTypeNode::Finalize(Platform* platform) const
+Ref<Type> DemangledTypeNode::Finalize(Platform& platform) const
 {
 	switch (GetPayloadClass())
 	{

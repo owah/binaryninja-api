@@ -3567,7 +3567,7 @@ void PEView::AddPESymbol(BNSymbolType type, const string& dll, const string& nam
 			{
 				QualifiedName demangledName;
 				Ref<Type> demangledType;
-				if (DemangleGeneric(m_arch, rawName, demangledType, demangledName, this, m_simplifyTemplates))
+				if (DemangleGeneric(GetDefaultPlatform(), rawName, demangledType, demangledName, this, m_simplifyTemplates))
 				{
 					shortName = demangledName.GetString();
 					fullName = shortName;

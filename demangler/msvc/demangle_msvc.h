@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #pragma once
-#include <exception>
+#include <functional>
 #include <optional>
 #include <utility>
 
@@ -37,15 +37,7 @@
 #endif
 
 #include "demangler/demangled_type_node.h"
-
-class DemangleException: public std::exception
-{
-	_STD_STRING m_message;
-public:
-	DemangleException(_STD_STRING msg="Attempt to read beyond bounds or missing expected character"): m_message(std::move(msg)){}
-	[[nodiscard]] const char* what() const noexcept override { return m_message.c_str(); }
-};
-
+#include "demangler/nesting_guard.h"
 
 class Demangle
 {
@@ -241,25 +233,19 @@ private:
 	_STD_STRING m_mangledName; // Owns the string; Reader points into it
 	Reader m_reader;
 	BackrefList m_backrefList;
-	BN::Architecture* m_arch;
-	BN::Ref<BN::Platform> m_platform;
-	BN::Ref<BN::BinaryView> m_view;
+	std::reference_wrapper<BN::Platform> m_platform;
 	size_t m_templateParamDepth = 0;
 	size_t m_nestingDepth = 0;
-	class NestingGuard
-	{
-		Demangle& m_demangler;
-	public:
-		NestingGuard(Demangle& demangler);
-		~NestingGuard();
-	};
+	using NestingGuard = DemangleNestingGuard;
 
 	static void RewriteTemplateBackrefName(NameList& typeName, const BackrefList& nameBackrefList);
 	static void PrependNameComponent(NameList& nameList, DemangledNamePart name);
 	void AppendStringName(NameList& nameList, BackrefList& nameBackrefList);
 	static void FinalizeConstructorTemplateName(NameList& nameList, size_t nameListSizeAtEntry, bool pending);
 	static bool FunctionTypeHasPointerSuffix(char functionType);
-	static _STD_STRING FormatFunctionScopeSignature(const DemangledTypeNode& type, const NameList& scopeName);
+	static _STD_STRING FormatFunctionScopeSignature(
+		const DemangledTypeNode& type, const NameList& scopeName, BN::Platform& platform);
+	BN::Platform& GetRenderingPlatform() const;
 	void AppendLocalScope(NameList& nameList, BackrefList& nameBackrefList, uint64_t scopeOrdinal, bool typeNameContext);
 	bool TryAppendLocalScopeAt(NameList& nameList, BackrefList& nameBackrefList, const char* encodedNumberStart,
 		bool typeNameContext);
@@ -339,46 +325,14 @@ private:
 	DemangledTypeNode DemangleTypeInfoName(NameList& symbolName);
 	DemangleContext DemangleDynamicInitFini(bool isDtor, BackrefList& backrefList);
 	DemangleContext DemangleSymbol(BackrefList& backrefList);
-	std::pair<BN::Ref<BN::Type>, BN::QualifiedName> Finalize(BN::BinaryView* view, bool simplifyTemplates = false);
 
 public:
-	Demangle(BN::Architecture* arch, _STD_STRING  mangledName);
-	Demangle(BN::Ref<BN::BinaryView> view, _STD_STRING  mangledName);
-	Demangle(BN::Ref<BN::Platform> platform, _STD_STRING  mangledName);
+	Demangle(BN::Platform& platform, _STD_STRING  mangledName);
+	void Reset(BN::Platform& platform, const _STD_STRING& mangledName);
 	Demangle(const Demangle&) = delete;
 	Demangle(Demangle&&) = delete;
 	Demangle& operator=(const Demangle&) = delete;
 	Demangle& operator=(Demangle&&) = delete;
-	void Reset(BN::Architecture* arch, const _STD_STRING& mangledName);
 	DemangleContext DemangleSymbol();
 	std::pair<BN::Ref<BN::Type>, BN::QualifiedName> Finalize(bool simplifyTemplates = false);
-
-	// Be careful not to accidentally implicitly cast a BinaryView* to a bool
-	static bool DemangleMS(BN::Architecture* arch, const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, const BN::Ref<BN::BinaryView>& view);
-	static bool DemangleMS(BN::Architecture* arch, const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, const BN::Ref<BN::BinaryView>& view,
-	                       bool simplifyTemplates);
-	static bool DemangleMS(BN::Architecture* arch, const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, BN::BinaryView* view);
-	static bool DemangleMS(BN::Architecture* arch, const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, BN::BinaryView* view, bool simplifyTemplates);
-	static bool DemangleMS(BN::Platform* platform, const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName);
-	static bool DemangleMS(BN::Platform* platform, const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, bool simplifyTemplates);
-	static bool DemangleMS(BN::Architecture* arch, const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName);
-	static bool DemangleMS(BN::Architecture* arch, const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, bool simplifyTemplates);
-
-	static bool DemangleMS(const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, const BN::Ref<BN::BinaryView>& view);
-	static bool DemangleMS(const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, const BN::Ref<BN::BinaryView>& view,
-	                       bool simplifyTemplates);
-	static bool DemangleMS(const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, BN::BinaryView* view);
-	static bool DemangleMS(const _STD_STRING& mangledName, BN::Ref<BN::Type>& outType,
-	                       BN::QualifiedName& outVarName, BN::BinaryView* view, bool simplifyTemplates);
 };

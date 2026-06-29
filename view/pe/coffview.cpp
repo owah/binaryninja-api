@@ -269,7 +269,9 @@ bool COFFView::Init()
 					else if (stringTableBase + offset < GetParentView()->GetEnd())
 					{
 						sectionNameReader.Seek(stringTableBase + offset);
-						resolvedName = sectionNameReader.ReadCString();
+						// Section names longer than 1024 bytes are not meaningful; cap the read
+						// to avoid allocating unbounded memory from a crafted string table.
+						resolvedName = sectionNameReader.ReadCString(1024);
 					}
 					else
 					{
@@ -865,6 +867,31 @@ bool COFFView::Init()
 			// TODO: combine the aux symbol record struct types into a union:
 			// StructureBuilder coffAuxSymbolRecordBuilder(UnionStructureType);
 
+			// Apply the symbol count limit before computing symbolTableSize so that
+			// AddAutoSegment and DefineDataVariable are never called with an attacker-
+			// controlled multi-gigabyte size.
+			uint64_t maxSymCount = 1000000;
+			uint64_t maxSymNameLen = 32768;
+			uint64_t maxTotalSymNameBytes = 1073741824ULL; // 1 GB
+			if (settings && settings->Contains("loader.coff.maxCoffSymbolCount"))
+				maxSymCount = settings->Get<uint64_t>("loader.coff.maxCoffSymbolCount", this);
+			if (settings && settings->Contains("loader.coff.maxCoffSymbolNameLength"))
+				maxSymNameLen = settings->Get<uint64_t>("loader.coff.maxCoffSymbolNameLength", this);
+			if (settings && settings->Contains("loader.coff.maxTotalCoffSymbolNameBytes"))
+				maxTotalSymNameBytes = settings->Get<uint64_t>("loader.coff.maxTotalCoffSymbolNameBytes", this)
+				                       * 1024 * 1024;
+
+			// Preserve the original count for locating the string table, which sits immediately
+			// after all symbol table entries. Truncating coffSymbolCount for the loop must not
+			// affect the string table offset calculation.
+			uint32_t originalCoffSymbolCount = header.coffSymbolCount;
+			if (header.coffSymbolCount > maxSymCount)
+			{
+				m_logger->LogWarn("COFF symbol count %u exceeds limit %" PRIu64 ", truncating.",
+					header.coffSymbolCount, maxSymCount);
+				header.coffSymbolCount = (uint32_t)maxSymCount;
+			}
+
 			size_t symbolTableSize = header.coffSymbolCount * sizeofCOFFSymbol;
 			auto lastSection = m_sections.back();
 			symbolTableAdjustedOffset = header.coffSymbolTable - lastSection.pointerToRawData + lastSection.virtualAddress;
@@ -886,7 +913,7 @@ bool COFFView::Init()
 			DefineAutoSymbol(new Symbol(DataSymbol, "__symtab", coffSymbolTableBase, NoBinding));
 
 			BinaryReader stringReader(GetParentView(), LittleEndian);
-			uint64_t stringTableBaseRaw = header.coffSymbolTable + ((uint64_t) header.coffSymbolCount * sizeofCOFFSymbol);
+			uint64_t stringTableBaseRaw = header.coffSymbolTable + ((uint64_t)originalCoffSymbolCount * sizeofCOFFSymbol);
 
 			stringReader.Seek(stringTableBaseRaw);
 			uint32_t stringTableSize = stringReader.Read32();
@@ -913,6 +940,7 @@ bool COFFView::Init()
 
 			DefineAutoSymbol(new Symbol(DataSymbol, "__strtab", m_imageBase + stringTableBase + 4, NoBinding));
 
+			uint64_t totalSymNameBytesRead = 0;
 			for (size_t i = 0; i < header.coffSymbolCount; i++)
 			{
 				reader.Seek(header.coffSymbolTable + (i * sizeofCOFFSymbol));
@@ -948,7 +976,14 @@ bool COFFView::Init()
 				else
 				{
 					stringReader.Seek(stringTableBaseRaw + e_offset);
-					symbolName = stringReader.ReadCString();
+					symbolName = stringReader.ReadCString(maxSymNameLen);
+					totalSymNameBytesRead += symbolName.size();
+					if (totalSymNameBytesRead > maxTotalSymNameBytes)
+					{
+						m_logger->LogWarn("Total COFF symbol name bytes exceeded limit %" PRIu64
+							", stopping symbol processing at index %zu.", maxTotalSymNameBytes, i);
+						break;
+					}
 				}
 
 				BNSymbolBinding binding;
@@ -1708,6 +1743,35 @@ Ref<Settings> COFFViewType::GetLoadSettingsForData(BinaryView* data)
 	// 		"description" : "Add function starts sourced from the Structured Exception Handling (SEH) table to the core for analysis."
 	// 		})");
 
+	settings->RegisterSetting("loader.coff.maxCoffSymbolCount",
+			R"({
+			"title" : "Maximum COFF Symbol Count",
+			"type" : "number",
+			"default" : 1000000,
+			"minValue" : 1,
+			"maxValue" : 100000000,
+			"description" : "Maximum number of COFF symbol table entries to process. Prevents out-of-memory conditions caused by malformed or malicious COFF files that declare an excessive number of symbols."
+			})");
+
+	settings->RegisterSetting("loader.coff.maxCoffSymbolNameLength",
+			R"({
+			"title" : "Maximum COFF Symbol Name Length",
+			"type" : "number",
+			"default" : 32768,
+			"minValue" : 1,
+			"maxValue" : 1000000,
+			"description" : "Maximum number of bytes read for a single COFF symbol name from the string table. 32768 comfortably covers the longest real-world Rust mangled names while bounding per-symbol allocation."
+			})");
+
+	settings->RegisterSetting("loader.coff.maxTotalCoffSymbolNameBytes",
+			R"json({
+			"title" : "Maximum COFF Total Symbol Name Budget (MB)",
+			"type" : "number",
+			"default" : 1024,
+			"minValue" : 1,
+			"maxValue" : 10240,
+			"description" : "Maximum total memory (in MB) allocated for all COFF symbol names combined. This budget guards against combined count-and-length attacks where many symbols each carry a long name."
+			})json");
 
 	return settings;
 }

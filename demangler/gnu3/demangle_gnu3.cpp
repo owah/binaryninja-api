@@ -710,6 +710,11 @@ void DemangleGNU3::ResolveForwardTemplateRefs(DemangledTypeNode&, const ParamLis
 			continue;
 		if (ref.index >= args.size() || !args[ref.index].type)
 			throw DemangleException();
+		if (args[ref.index].type->ContainsNodeRef(ref.typeRef))
+		{
+			LogWarnF("Rejecting GNU3 demangle: recursive forward template reference T{}_", ref.index);
+			throw DemangleException("Detected recursive forward template reference");
+		}
 		*ref.typeRef = *args[ref.index].type;
 	}
 	m_pendingForwardRefs.clear();

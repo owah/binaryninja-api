@@ -19,6 +19,7 @@
 #include "base/assertions.h"
 #include <algorithm>
 #include <fmt/format.h>
+#include <unordered_set>
 
 #ifdef BINARYNINJACORE_LIBRARY
 using namespace BinaryNinjaCore;
@@ -882,6 +883,80 @@ bool DemangledTypeNode::HasTemplateArguments() const
 		return (payload->leftType && payload->leftType->HasTemplateArguments()) ||
 			(payload->rightType && payload->rightType->HasTemplateArguments());
 	return false;
+}
+
+
+bool DemangledTypeNode::ContainsNodeRef(const NodeRef& target) const
+{
+	if (!target)
+		return false;
+
+	std::unordered_set<const DemangledTypeNode*> visited;
+	std::function<bool(const DemangledTypeNode*)> containsNode;
+	std::function<bool(const NodeRef&)> containsRef;
+
+	containsRef = [&](const NodeRef& ref) {
+		if (!ref)
+			return false;
+		if (ref == target)
+			return true;
+		return containsNode(ref.get());
+	};
+
+	auto containsName = [&](const DemangledQualifiedName& name) {
+		for (const auto& part : name)
+		{
+			if (containsRef(part.m_baseTypeSuffix))
+				return true;
+			for (const auto& arg : part.m_templateArgs)
+			{
+				if (containsRef(arg.type))
+					return true;
+			}
+		}
+		return false;
+	};
+
+	auto containsParams = [&](const vector<Param>& params) {
+		for (const auto& param : params)
+		{
+			if (containsRef(param.type))
+				return true;
+		}
+		return false;
+	};
+
+	containsNode = [&](const DemangledTypeNode* node) {
+		if (!node)
+			return false;
+		if (node == target.get())
+			return true;
+		if (!visited.insert(node).second)
+			return false;
+
+		if (auto payload = std::get_if<PointerPayload>(&node->m_payload))
+			return containsRef(payload->childType);
+		if (auto payload = std::get_if<MemberPointerPayload>(&node->m_payload))
+			return containsRef(payload->childType) || containsName(payload->ownerName);
+		if (auto payload = std::get_if<ArrayPayload>(&node->m_payload))
+			return containsRef(payload->childType);
+		if (auto payload = std::get_if<FunctionPayload>(&node->m_payload))
+		{
+			return containsRef(payload->returnType) || containsRef(payload->implicitThisParameterType) ||
+				containsParams(payload->params);
+		}
+		if (auto payload = std::get_if<NamedTypePayload>(&node->m_payload))
+			return containsName(payload->name);
+		if (auto payload = std::get_if<PostfixPayload>(&node->m_payload))
+			return containsRef(payload->childType) || containsRef(payload->suffixType);
+		if (auto payload = std::get_if<UnaryExpressionPayload>(&node->m_payload))
+			return containsRef(payload->childType);
+		if (auto payload = std::get_if<BinaryExpressionPayload>(&node->m_payload))
+			return containsRef(payload->leftType) || containsRef(payload->rightType);
+		return false;
+	};
+
+	return containsNode(this);
 }
 
 

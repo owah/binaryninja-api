@@ -94,6 +94,8 @@ public:
 	static Ref CreateSharedCopy(const DemangledNamePart& part);
 
 private:
+	friend class DemangledTypeNode;
+
 	_STD_STRING m_base;
 	std::shared_ptr<DemangledTypeNode> m_baseTypeSuffix;
 	_STD_VECTOR<DemangledTypeNodeParam> m_templateArgs;
@@ -174,6 +176,7 @@ public:
 	void SetParenthesizedMemberPointer(bool parenthesized);
 	StringList RenderTypeNameSegments(BN::Platform& platform = GetDemanglerFallbackPlatform()) const;
 	bool IsStructurallyEqual(const DemangledTypeNode& other) const;
+	bool ContainsNodeRef(const NodeRef& target) const;
 	bool MutateChildTypes(const std::function<bool(DemangledTypeNode&)>& mutator);
 	bool MutateQualifiedNames(const std::function<bool(DemangledQualifiedName&)>& mutator);
 

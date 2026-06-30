@@ -523,9 +523,17 @@ DemangleGNU3::NodeRef DemangleGNU3::PushTemplateType(DemangledTypeNode&& type)
 }
 
 
+DemangleGNU3::NodeRef DemangleGNU3::PushTemplateParamPack(ParamList args)
+{
+	NodeRef ref = NodeRef::TemplateParamPack(std::move(args));
+	m_templateSubstitute.push_back(ref);
+	return ref;
+}
+
+
 void DemangleGNU3::PushEmptyTemplateParamSubstitution()
 {
-	m_templateSubstitute.push_back(NodeRef::EmptyTemplatePack());
+	m_templateSubstitute.push_back(NodeRef::TemplateParamPack({}));
 }
 
 
@@ -663,6 +671,8 @@ DemangledTypeNode DemangleGNU3::DemangleFunction(bool cnst, bool vltl)
 	{
 		DemangledTypeNode param = DemangleType();
 		NodeRef paramRef = m_lastTypeRef;
+		if (AppendTemplateParamPackExpansion(params, paramRef, true))
+			continue;
 		if (param.GetClass() == VoidTypeClass)
 			continue;
 		MyLogDebug("Var_%d - %s\n", i++, param.GetString().c_str());
@@ -780,6 +790,14 @@ DemangleGNU3::NodeRef DemangleGNU3::DemangleTemplateSubstitutionEntry(NodeRef* o
 DemangledTypeNode DemangleGNU3::DemangleTemplateSubstitution(NodeRef* outTypeRef)
 {
 	NodeRef entry = DemangleTemplateSubstitutionEntry(outTypeRef);
+	if (entry.IsTemplateParamPack())
+	{
+		if (outTypeRef)
+			*outTypeRef = entry;
+		if (entry.emptyTemplatePack)
+			return DemangledTypeNode::VoidType();
+		return *entry;
+	}
 	if (entry.emptyTemplatePack || !entry)
 		throw DemangleException();
 	return *entry;
@@ -893,7 +911,7 @@ DemangledTypeNode DemangleGNU3::DemangleType()
 		// In forward-ref mode (cv conversion operator type parsing), do not consume
 		// trailing I<args>E — it belongs to the enclosing nested-name and will be
 		// processed by DemangleNestedName's 'I' case, which resolves forward refs.
-		substitute = !m_permitForwardTemplateRefs;
+		substitute = !m_permitForwardTemplateRefs && !typeRef.IsTemplateParamPack();
 		if (!m_permitForwardTemplateRefs && m_reader.Peek() == 'I')
 		{
 			m_reader.Consume();
@@ -1032,7 +1050,14 @@ DemangledTypeNode DemangleGNU3::DemangleType()
 		case 'p':
 		{
 			DemangledTypeNode inner = DemangleType();
-			NodeRef innerRef = m_lastTypeRef ? m_lastTypeRef : NodeRef(DemangledTypeNode::CreateShared(std::move(inner)));
+			NodeRef innerRef = (m_lastTypeRef || m_lastTypeRef.IsTemplateParamPack()) ?
+				m_lastTypeRef : NodeRef(DemangledTypeNode::CreateShared(std::move(inner)));
+			if (innerRef.IsTemplateParamPack())
+			{
+				typeRef = NodeRef::TemplateParamPackExpansion(*innerRef.templatePack);
+				type = typeRef ? *typeRef : DemangledTypeNode::VoidType();
+				break;
+			}
 			type = DemangledTypeNode::PostfixType(innerRef, "...");
 			break;
 		}
@@ -2264,28 +2289,6 @@ string DemangleGNU3::DemangleExpression(DemangledTypeNode* outNode)
 }
 
 
-bool DemangleGNU3::TryDemangleTemplateParamPackExpansion(DemangledTypeNode& type, bool& emptyPack)
-{
-	if (m_reader.Length() < 3 || m_reader.PeekString(3) != "DpT")
-		return false;
-
-	m_reader.Consume(3); // "DpT"
-	NodeRef entry = DemangleTemplateSubstitutionEntry();
-	if (entry.emptyTemplatePack)
-	{
-		emptyPack = true;
-		PushEmptyTypeSubstitution();
-		return true;
-	}
-	if (!entry)
-		throw DemangleException();
-
-	type = *entry;
-	PushType(type);
-	return true;
-}
-
-
 bool DemangleGNU3::TryDemangleTemplateParamExpressionPackExpansion(string& expr, bool& emptyPack)
 {
 	if (m_reader.Length() < 3 || m_reader.PeekString(3) != "spT")
@@ -2302,6 +2305,31 @@ bool DemangleGNU3::TryDemangleTemplateParamExpressionPackExpansion(string& expr,
 		throw DemangleException();
 
 	expr = entry->GetString();
+	return true;
+}
+
+
+bool DemangleGNU3::AppendTemplateParamPackExpansion(ParamList& params, const NodeRef& expansion, bool functionParameter)
+{
+	if (!expansion.IsTemplateParamPackExpansion())
+		return false;
+
+	if (expansion.emptyTemplatePack)
+	{
+		PushEmptyTypeSubstitution();
+		return true;
+	}
+
+	for (const auto& arg : *expansion.templatePack)
+	{
+		if (!arg.type)
+			throw DemangleException();
+		NodeRef paramRef = PushType(*arg.type);
+		m_lastTypeRef = paramRef;
+		if (functionParameter && !m_functionSubstitute.empty())
+			m_functionSubstitute.back().push_back(paramRef);
+		params.push_back({"", paramRef});
+	}
 	return true;
 }
 
@@ -2349,9 +2377,15 @@ bool DemangleGNU3::DemangleTemplateArg(ParamList& args, bool* hadNonTypeArg)
 	case 'J':
 	{
 		size_t prevTemplateSize = m_templateSubstitute.size();
+		size_t prevArgSize = args.size();
 		DemangleTemplateArgs(args, hadNonTypeArg);
-		if (m_topLevel && m_templateSubstitute.size() == prevTemplateSize)
-			PushEmptyTemplateParamSubstitution();
+		if (m_topLevel)
+		{
+			ParamList packArgs(args.begin() + prevArgSize, args.end());
+			while (m_templateSubstitute.size() > prevTemplateSize)
+				m_templateSubstitute.pop_back();
+			PushTemplateParamPack(std::move(packArgs));
+		}
 		break;
 	}
 	case 'T':
@@ -2376,11 +2410,9 @@ bool DemangleGNU3::DemangleTemplateArg(ParamList& args, bool* hadNonTypeArg)
 		m_reader.UnRead();
 		topLevel = m_topLevel;
 		m_topLevel = false;
-		bool emptyPack = false;
-		if (!TryDemangleTemplateParamPackExpansion(tmp, emptyPack))
-			tmp = DemangleType();
+		tmp = DemangleType();
 		m_topLevel = topLevel;
-		if (emptyPack)
+		if (AppendTemplateParamPackExpansion(args, m_lastTypeRef, false))
 			return true;
 		tmpRef = DemangledTypeNode::CreateShared(std::move(tmp));
 		args.push_back({"", tmpRef});
@@ -3163,11 +3195,18 @@ DemangledTypeNode DemangleGNU3::DemangleSymbol(StringList& varName, bool simplif
 	if (simplifyTemplates)
 		DemangledTemplateSimplifier::SimplifyTypeNodeInPlace(type);
 	varName = type.RenderTypeNameSegments(m_platform);
+	BNNameType nameType = type.GetNameType();
 	if (m_isOperatorOverload ||
-		type.GetNameType() == ConstructorNameType ||
-		type.GetNameType() == DestructorNameType)
+		nameType == ConstructorNameType ||
+		nameType == DestructorNameType ||
+		nameType == OperatorDeleteNameType ||
+		nameType == OperatorDeleteArrayNameType)
 	{
 		returnType = DemangledTypeNode::VoidType();
+	}
+	else if (nameType == OperatorNewNameType || nameType == OperatorNewArrayNameType)
+	{
+		returnType = DemangledTypeNode::PointerType(DemangledTypeNode::VoidType(), false, false, PointerReferenceType);
 	}
 	else if (nameRequiresReturnType)
 	{
@@ -3210,6 +3249,8 @@ DemangledTypeNode DemangleGNU3::DemangleSymbol(StringList& varName, bool simplif
 			break;
 		DemangledTypeNode param = DemangleType();
 		NodeRef paramRef = m_lastTypeRef;
+		if (AppendTemplateParamPackExpansion(params, paramRef, true))
+			continue;
 		if (param.GetClass() == VoidTypeClass)
 		{
 			if (m_reader.Peek() == 'E')

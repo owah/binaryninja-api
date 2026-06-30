@@ -91,7 +91,9 @@ class DemangleGNU3
 	struct NodeRef
 	{
 		TypeNodeRef type;
+		std::shared_ptr<ParamList> templatePack;
 		bool emptyTemplatePack = false;
+		bool templatePackExpansion = false;
 
 		NodeRef() = default;
 		NodeRef(std::nullptr_t) {}
@@ -104,7 +106,32 @@ class DemangleGNU3
 			return ref;
 		}
 
+		static NodeRef TemplateParamPack(ParamList args)
+		{
+			NodeRef ref;
+			ref.templatePack = std::make_shared<ParamList>(std::move(args));
+			ref.emptyTemplatePack = ref.templatePack->empty();
+			for (auto& arg : *ref.templatePack)
+			{
+				if (arg.type)
+				{
+					ref.type = arg.type;
+					break;
+				}
+			}
+			return ref;
+		}
+
+		static NodeRef TemplateParamPackExpansion(ParamList args)
+		{
+			NodeRef ref = TemplateParamPack(std::move(args));
+			ref.templatePackExpansion = true;
+			return ref;
+		}
+
 		explicit operator bool() const { return type != nullptr; }
+		bool IsTemplateParamPack() const { return templatePack != nullptr; }
+		bool IsTemplateParamPackExpansion() const { return templatePackExpansion; }
 		DemangledTypeNode& operator*() const { return *type; }
 		DemangledTypeNode* operator->() const { return type.get(); }
 		operator TypeNodeRef() const { return type; }
@@ -154,7 +181,6 @@ class DemangleGNU3
 	_STD_STRING DemangleExpression(DemangledTypeNode* outNode = nullptr);
 	_STD_STRING DemanglePrimaryExpression();
 	NodeRef DemangleTemplateSubstitutionEntry(NodeRef* outTypeRef = nullptr);
-	bool TryDemangleTemplateParamPackExpansion(DemangledTypeNode& type, bool& emptyPack);
 	bool TryDemangleTemplateParamExpressionPackExpansion(_STD_STRING& expr, bool& emptyPack);
 	DemangledTypeNode DemangleName();
 	DemangledTypeNode DemangleLocalName();
@@ -171,6 +197,7 @@ class DemangleGNU3
 	NodeRef PushTemplateType(NodeRef type);
 	NodeRef PushTemplateType(const DemangledTypeNode& type);
 	NodeRef PushTemplateType(DemangledTypeNode&& type);
+	NodeRef PushTemplateParamPack(ParamList args);
 	void PushEmptyTemplateParamSubstitution();
 	NodeRef PushType(NodeRef type);
 	NodeRef PushType(const DemangledTypeNode& type);
@@ -178,6 +205,7 @@ class DemangleGNU3
 	void PushEmptyTypeSubstitution();
 	NodeRef GetTypeRef(size_t ref);
 	const DemangledTypeNode& GetType(size_t ref);
+	bool AppendTemplateParamPackExpansion(ParamList& params, const NodeRef& expansion, bool functionParameter);
 
 	DemangledTypeNode CreateUnknownType(const StringList& s);
 	DemangledTypeNode CreateUnknownType(const _STD_STRING& s);

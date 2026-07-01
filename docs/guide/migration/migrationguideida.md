@@ -33,9 +33,9 @@ The following data will be imported:
 
 ## Keybindings
 
-To quickly set up IDA-like keybindings, open the First Run dialog from the Help menu (Help → First Run...) and select the IDA preset. The First Run dialog will apply IDA-style keybindings and UI settings for you. It appears automatically the first time you launch Binary Ninja, but it is always available from Help → First Run... — so if you dismissed it initially, or later want to (re)apply the IDA preset or switch between presets, you can change your keybindings and settings from there at any time.
+To quickly set up IDA-like keybindings, open the First Run dialog from the Help menu (Help / First Run Wizard...) and select the IDA preset. The First Run dialog will apply IDA-style keybindings and UI settings for you. It appears automatically the first time you launch Binary Ninja, but it is always available from Help / First Run Wizard... — so if you dismissed it initially, or later want to (re)apply the IDA preset or switch between presets, you can change your keybindings and settings from there at any time.
 
-<!-- TODO: Add screenshot of the First Run dialog showing the IDA Pro preset selection -->
+![First Run dialog with the IDA-Like preset selected](../../img/first-ida.png "First Run dialog: IDA-Like preset")
 
 Alternatively, you can manually replace your [keybindings](../index.md#custom-hotkeys) file in your [user folder](../index.md#user-folder) with [this file](../../files/ida-keybindings.json) to have the most seamless experience when changing to Binary Ninja.
 

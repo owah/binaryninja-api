@@ -1,4 +1,5 @@
 use binaryninja::binary_view::BinaryView;
+use binaryninja::demangle::{demangle_any, DemanglerConfig};
 use binaryninja::rc::Ref as BNRef;
 use binaryninja::symbol::Symbol as BNSymbol;
 use binaryninja::symbol::SymbolType as BNSymbolType;
@@ -75,17 +76,13 @@ pub fn to_bn_symbol_at_address(view: &BinaryView, symbol: &Symbol, addr: u64) ->
     let raw_name = symbol.name.as_str();
     let mut symbol_builder = BNSymbol::builder(symbol_type, &symbol.name, addr);
     // Demangle symbol name (short is with simplifications).
-    if let Some(arch) = view.default_arch() {
-        if let Some((full_name, _)) =
-            binaryninja::demangle::demangle_generic(&arch, raw_name, Some(view), false)
-        {
-            symbol_builder = symbol_builder.full_name(full_name);
-        }
-        if let Some((short_name, _)) =
-            binaryninja::demangle::demangle_generic(&arch, raw_name, Some(view), false)
-        {
-            symbol_builder = symbol_builder.short_name(short_name);
-        }
+    let full_config = DemanglerConfig::for_binary_view(view, false);
+    if let Some(result) = demangle_any(raw_name, &full_config) {
+        symbol_builder = symbol_builder.full_name(result.name);
+    }
+    let short_config = DemanglerConfig::for_binary_view(view, true);
+    if let Some(result) = demangle_any(raw_name, &short_config) {
+        symbol_builder = symbol_builder.short_name(result.name);
     }
     symbol_builder.create()
 }

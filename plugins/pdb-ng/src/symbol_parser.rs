@@ -1818,8 +1818,10 @@ impl<'a, S: Source<'a> + 'a> PDBParserInstance<'a, S> {
             &mut self.settings_query_opts.clone(),
         );
         let (mut t, mut name) = match demangle_ms(&self.arch, raw_name, simplify_templates) {
-            Some((name, Some(t))) => (Some(Conf::new(t, DEMANGLE_CONFIDENCE)), name),
-            Some((name, _)) => (None, name),
+            Some(result) => (
+                result.ty.map(|ty| Conf::new(ty, DEMANGLE_CONFIDENCE)),
+                result.name,
+            ),
             _ => (None, QualifiedName::new(vec![raw_name.clone()])),
         };
 

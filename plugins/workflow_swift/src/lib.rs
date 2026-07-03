@@ -30,5 +30,5 @@ pub extern "C" fn CorePluginInit() -> bool {
         }"#,
     );
 
-    Demangler::register("Swift", SwiftDemangler).is_some()
+    Demangler::register("Swift", SwiftDemangler)
 }

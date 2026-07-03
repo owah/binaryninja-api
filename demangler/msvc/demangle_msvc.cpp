@@ -240,19 +240,19 @@ void Demangle::BackrefContextSwitch::Swap(BackrefList& left, BackrefList& right)
 
 
 
-Demangle::Demangle(Platform& platform, _STD_STRING  mangledName) :
+Demangle::Demangle(const DemanglerConfig& config, _STD_STRING  mangledName) :
 	m_mangledName(std::move(mangledName)),
 	m_reader(m_mangledName),
-	m_platform(platform)
+	m_config(config)
 {
 }
 
-void Demangle::Reset(Platform& platform, const _STD_STRING& mangledName)
+void Demangle::Reset(const DemanglerConfig& config, const _STD_STRING& mangledName)
 {
 	m_mangledName = mangledName;
 	m_reader.Reset(m_mangledName);
 	m_backrefList.Clear();
-	m_platform = std::ref(platform);
+	m_config = config;
 	m_templateParamDepth = 0;
 	m_nestingDepth = 0;
 }
@@ -288,8 +288,7 @@ _STD_STRING Demangle::FormatTypeAndName(const DemangledTypeNode& type, const Nam
 	Platform& platform = GetRenderingPlatform();
 	if (type.GetNameType() == OperatorReturnTypeNameType)
 	{
-		Ref<Type> finalizedType = type.Finalize(platform);
-		if (finalizedType)
+		if (Ref<Type> finalizedType = type.Finalize(platform))
 			return finalizedType->GetTypeAndName(QualifiedName(nameSegments));
 	}
 	return type.GetTypeAndName(nameSegments, platform);
@@ -297,7 +296,7 @@ _STD_STRING Demangle::FormatTypeAndName(const DemangledTypeNode& type, const Nam
 
 Platform& Demangle::GetRenderingPlatform() const
 {
-	return m_platform;
+	return m_config.GetPlatform();
 }
 
 DemangledTypeNode Demangle::DemangleReferencedSymbolValue(BackrefList& varList)
@@ -2576,49 +2575,45 @@ Demangle::DemangleContext Demangle::DemangleSymbol(BackrefList& backrefList)
 	return finishContext();
 }
 
-std::pair<Ref<Type>, QualifiedName> Demangle::Finalize(bool simplifyTemplates)
+DemanglerResult Demangle::Finalize()
 {
 	DemangleContext context = DemangleSymbol();
 	if (m_reader.Length() != 0)
 		LogDebugF("Demangling Succeeded with trailing characters '{}' in '{}'", m_reader.GetRaw(), m_mangledName);
 
-	if (simplifyTemplates)
+	if (m_config.simplifyTemplates)
 	{
 		DemangledTemplateSimplifier::SimplifyTypeNodeInPlace(context.type);
 		DemangledTemplateSimplifier::SimplifyNameSegmentsInPlace(context.name);
 	}
 
-	return {context.type.Finalize(m_platform), QualifiedName(FinalizeNameList(context.name))};
+	DemanglerResult result;
+	result.type = context.type.Finalize(m_config.GetPlatform());
+	result.name = QualifiedName(FinalizeNameList(context.name));
+	return result;
 }
 
-static bool DemangleMSWithPlatform(Platform& platform, const _STD_STRING& mangledName, Ref<Type>& outType,
-	QualifiedName& outVarName, bool simplifyTemplates)
+static std::optional<DemanglerResult> DemangleMSWithConfig(const DemanglerConfig& config, const _STD_STRING& mangledName)
 {
-	outType = nullptr;
 	if (mangledName.empty() || (mangledName[0] != '?' && mangledName[0] != '.'))
-		return false;
+		return std::nullopt;
 
 	try
 	{
-		thread_local Demangle demangle(platform, mangledName);
-		demangle.Reset(platform, mangledName);
-		auto result = demangle.Finalize(simplifyTemplates);
-		outType = std::move(result.first);
-		outVarName = std::move(result.second);
-		return true;
+		thread_local Demangle demangle(config, mangledName);
+		demangle.Reset(config, mangledName);
+		return demangle.Finalize();
 	}
 	catch (DemangleException& e)
 	{
 		LogDebugF("Demangling Failed '{}' '{}'", mangledName, e.what());
-		return false;
 	}
 	catch (std::exception& e)
 	{
 		LogDebugF("Demangling Failed '{}' '{}'", mangledName, e.what());
-		return false;
 	}
+	return std::nullopt;
 }
-
 
 class MSDemangler: public Demangler
 {
@@ -2633,9 +2628,9 @@ public:
 		return !name.empty() && (name[0] == '?' || name[0] == '.');
 	}
 
-	bool Demangle(const _STD_STRING& name, const DemanglerConfig& config, DemanglerResult& result) override
+	std::optional<Result> Demangle(const string& name, const Config& config) override
 	{
-		return DemangleMSWithPlatform(config.GetPlatform(), name, result.type, result.name, config.simplifyTemplates);
+		return DemangleMSWithConfig(config, name);
 	}
 };
 
@@ -2654,7 +2649,6 @@ extern "C"
 #endif
 	{
 		static auto demangler = new MSDemangler();
-		Demangler::Register(demangler);
-		return true;
+		return Demangler::Register(demangler);
 	}
 }

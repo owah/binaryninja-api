@@ -8269,17 +8269,20 @@ extern "C"
 	BINARYNINJACOREAPI BNDemanglerConfig BNGetDemanglerConfigForBinaryView(BNBinaryView* view);
 	BINARYNINJACOREAPI bool BNDemangle(const char* name, const BNDemanglerConfig* config,
 	    BNDemanglerResult* result);
-	BINARYNINJACOREAPI bool BNDemangleWithDemangler(BNDemangler* demangler, const char* name,
+	BINARYNINJACOREAPI bool BNDemangleWithDemangler(const BNDemangler* demangler, const char* name,
 	    const BNDemanglerConfig* config, BNDemanglerResult* result);
 	BINARYNINJACOREAPI void BNFreeDemanglerResult(BNDemanglerResult* result);
 
+		// Demanglers must be registered and promoted during plugin initialization. After plugin loading
+		// completes, registration is finalized so named demangler lookups and priority order can be cached
+		// efficiently. Further registration attempts return nullptr, and further promotion attempts return false.
 	BINARYNINJACOREAPI BNDemangler* BNRegisterDemangler(const char* name, const BNDemanglerCallbacks* callbacks);
 	BINARYNINJACOREAPI BNDemangler** BNGetDemanglerList(size_t* count);
 	BINARYNINJACOREAPI void BNFreeDemanglerList(BNDemangler** demanglers);
 	BINARYNINJACOREAPI BNDemangler* BNGetDemanglerByName(const char* name);
-	BINARYNINJACOREAPI char* BNGetDemanglerName(BNDemangler* demangler);
-	BINARYNINJACOREAPI void BNPromoteDemangler(BNDemangler* demangler);
-	BINARYNINJACOREAPI bool BNIsDemanglerMangledName(BNDemangler* demangler, const char* name);
+	BINARYNINJACOREAPI char* BNGetDemanglerName(const BNDemangler* demangler);
+	BINARYNINJACOREAPI bool BNPromoteDemangler(const BNDemangler* demangler);
+	BINARYNINJACOREAPI bool BNIsDemanglerMangledName(const BNDemangler* demangler, const char* name);
 
 // Plugin repository APIs
 	BINARYNINJACOREAPI char** BNPluginGetApis(BNPlugin* p, size_t* count);

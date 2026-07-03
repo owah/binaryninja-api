@@ -65,32 +65,6 @@ namespace
 		return s;
 	}
 
-	static std::string_view ExtractLeadingTypeKeyword(std::string_view& s)
-	{
-		s = TrimSpaces(s);
-		if (StartsWith(s, "class "))
-		{
-			s = s.substr(6);
-			return "class ";
-		}
-		if (StartsWith(s, "struct "))
-		{
-			s = s.substr(7);
-			return "struct ";
-		}
-		if (StartsWith(s, "union "))
-		{
-			s = s.substr(6);
-			return "union ";
-		}
-		if (StartsWith(s, "enum "))
-		{
-			s = s.substr(5);
-			return "enum ";
-		}
-		return {};
-	}
-
 	static string RemoveSpaces(std::string_view s)
 	{
 		string out;
@@ -2461,9 +2435,8 @@ DemangledTemplateSimplifier::SimplifyNameResult DemangledTemplateSimplifier::Sim
 
 BN::QualifiedName DemangledTemplateSimplifier::SimplifyQualifiedName(const BN::QualifiedName& name)
 {
-	string rendered = name.GetString();
-	std::string_view stripped(rendered.data(), rendered.size());
-	(void)ExtractLeadingTypeKeyword(stripped);
+	auto renderedName = name.GetString();
+	auto stripped = StripLeadingTypeKeyword(std::string_view(renderedName.data(), renderedName.size()));
 	DemangledQualifiedName parsed = ParseCompatibilityName(stripped);
 	SimplifyNameSegmentsInPlace(parsed);
 	return BN::QualifiedName(RenderSegments(parsed));

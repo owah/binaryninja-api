@@ -1529,11 +1529,11 @@ void COFFView::AddCOFFSymbol(BNSymbolType type, const string& dll, const string&
 
 	if (m_arch && name.size() > 0)
 	{
-		QualifiedName demangledName;
-		Ref<Type> demangledType;
-		if (DemangleGeneric(GetDefaultPlatform(), rawName, demangledType, demangledName, this, m_simplifyTemplates))
+		DemanglerConfig config {GetDefaultPlatform(), this, m_simplifyTemplates};
+		if (auto demangled = Demangler::DemangleAny(rawName, config))
 		{
-			shortName = demangledName.GetString();
+			auto demangledType = demangled->type;
+			shortName = demangled->name.GetString();
 			fullName = shortName;
 			if (demangledType)
 				fullName += demangledType->GetStringAfterName();

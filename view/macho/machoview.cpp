@@ -2061,6 +2061,7 @@ bool MachoView::InitializeHeader(MachOHeader& header, bool isMainHeader, uint64_
 		if (header.m_entryPoints.size() > 0 && !platformSetByUser)
 			platform = platform->GetAssociatedPlatformByAddress(header.m_entryPoints[0]);
 
+		m_plat = platform;
 		SetDefaultPlatform(platform);
 		SetDefaultArchitecture(platform->GetArchitecture());
 
@@ -2721,19 +2722,17 @@ Ref<Symbol> MachoView::DefineMachoSymbol(
 		string fullName = rawName;
 		Ref<Type> typeRef = symbolTypeRef;
 
-		if (m_arch)
+		DemanglerConfig config {m_plat, this, m_simplifyTemplates};
+		auto demangled = Demangler::DemangleAny(rawName, config);
+		if (demangled)
 		{
-			QualifiedName demangledName;
-			Ref<Type> demangledType;
-			if (DemangleGeneric(GetDefaultPlatform(), rawName, demangledType, demangledName, nullptr, m_simplifyTemplates))
-			{
-				shortName = demangledName.GetString();
-				fullName = shortName;
-				if (demangledType)
-					fullName += demangledType->GetStringAfterName();
-				if (!typeRef && m_extractMangledTypes && !GetDefaultPlatform()->GetFunctionByName(rawName))
-					typeRef = demangledType;
-			}
+			auto demangledType = demangled->type;
+			shortName = demangled->name.GetString();
+			fullName = shortName;
+			if (demangledType)
+				fullName += demangledType->GetStringAfterName();
+			if (!typeRef && m_extractMangledTypes && !m_plat->GetFunctionByName(rawName))
+				typeRef = demangledType;
 		}
 
 		if ((type == ExternalSymbol || type == ImportAddressSymbol)

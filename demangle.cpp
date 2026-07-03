@@ -1,166 +1,186 @@
 #include "binaryninjaapi.h"
 #include <string>
+#include <utility>
 using namespace std;
 using namespace BinaryNinja;
 
-namespace BinaryNinja {
-	static void StoreDemanglerResult(BNDemanglerResult& apiResult, DemanglerResult& result)
+namespace {
+
+	BNDemangler* GetLLVMDemangler()
 	{
-		result.name = QualifiedName::FromAPIObject(&apiResult.name);
-		if (apiResult.type)
-		{
-			result.type = new Type(apiResult.type);
-			apiResult.type = nullptr;
-		}
-		else
-		{
-			result.type = nullptr;
-		}
+		static BNDemangler* demangler = BNGetDemanglerByName(BN_DEMANGLER_LLVM);
+		return demangler;
 	}
 
-	static DemanglerConfig DemanglerConfigFromAPIObject(const BNDemanglerConfig* config)
+	BNDemangler* GetMSVCDemangler()
+	{
+		static BNDemangler* demangler = BNGetDemanglerByName(BN_DEMANGLER_MSVC);
+		return demangler;
+	}
+
+	BNDemangler* GetGNU3Demangler()
+	{
+		static BNDemangler* demangler = BNGetDemanglerByName(BN_DEMANGLER_GNU3);
+		return demangler;
+	}
+
+	std::optional<DemanglerResult> DemangleWithDemangler(
+		const BNDemangler* demangler, const Platform* platform, const std::string& mangledName, bool simplify)
+	{
+		if (!demangler)
+			return std::nullopt;
+
+		BNDemanglerConfig apiConfig(platform ? platform->GetObject() : nullptr, nullptr, simplify);
+		BNDemanglerResult apiResult = {};
+		if (!BNDemangleWithDemangler(demangler, mangledName.c_str(), &apiConfig, &apiResult))
+			return std::nullopt;
+
+		return DemanglerResult::FromAPIObjectAndFree(&apiResult);
+	}
+
+	bool StoreDemangleResult(std::optional<DemanglerResult>&& result, Ref<Type>& outType, QualifiedName& outVarName)
+	{
+		if (!result)
+			return false;
+		outType = std::move(result->type);
+		outVarName = result->name;
+		return true;
+	}
+}
+
+namespace BinaryNinja
+{
+	DemanglerConfig DemanglerConfig::FromAPIObject(const BNDemanglerConfig* config)
 	{
 		DemanglerConfig result;
 		if (!config)
-			return result;
+			return Default();
 
-		result.platform = config->platform ? new CorePlatform(BNNewPlatformReference(config->platform)) : nullptr;
+		result.platform = config->platform ? new CorePlatform(BNNewPlatformReference(config->platform)) : Default().platform;
 		result.view = config->view ? new BinaryView(BNNewViewReference(config->view)) : nullptr;
 		result.simplifyTemplates = config->simplifyTemplates;
 		return result;
 	}
 
+
 	DemanglerConfig DemanglerConfig::Default()
 	{
 		BNDemanglerConfig config = BNGetDefaultDemanglerConfig();
-		return DemanglerConfigFromAPIObject(&config);
+		static auto cfg = FromAPIObject(&config);
+		return cfg;
 	}
 
 	DemanglerConfig DemanglerConfig::ForPlatform(Platform* platform, bool simplifyTemplates)
 	{
-		BNDemanglerConfig config = BNGetDemanglerConfigForPlatform(platform ? platform->GetObject() : nullptr,
-		    simplifyTemplates);
-		return DemanglerConfigFromAPIObject(&config);
+		return {platform ? platform : Default().platform.GetPtr(), nullptr, simplifyTemplates};
 	}
 
 	DemanglerConfig DemanglerConfig::ForBinaryView(BinaryView* view)
 	{
-		BNDemanglerConfig config = BNGetDemanglerConfigForBinaryView(view ? view->GetObject() : nullptr);
-		return DemanglerConfigFromAPIObject(&config);
+		if (!view)
+			return Default();
+
+		Ref<Platform> platform = view->GetDefaultPlatform();
+		if (!platform)
+		{
+			if (auto arch = view->GetDefaultArchitecture())
+				platform = arch->GetStandalonePlatform();
+		}
+		if (!platform)
+			platform = Default().platform;
+
+		return {platform, view,
+			Settings::Instance()->Get<bool>("analysis.types.templateSimplifier", view)};
 	}
 
-	BNDemanglerConfig DemanglerConfig::GetAPIObject() const
+	Platform& DemanglerConfig::GetPlatform() const
+	{
+		if (platform)
+			return *platform;
+		return *Default().platform;
+	}
+
+	BNDemanglerConfig DemanglerConfig::ToAPIObject() const
 	{
 		return {
-			platform ? platform->GetObject() : nullptr,
+			GetPlatform().GetObject(),
 			view ? view->GetObject() : nullptr,
 			simplifyTemplates,
 		};
 	}
 
-	static BNDemanglerConfig DemanglerConfigForContext(Platform* platform, BinaryView* view, bool simplify)
+	DemanglerResult DemanglerResult::FromAPIObject(const BNDemanglerResult* apiResult)
 	{
-		BNDemanglerConfig config;
-		if (view)
-		{
-			config = BNGetDemanglerConfigForBinaryView(view->GetObject());
-			config.simplifyTemplates = simplify;
-			if (platform)
-				config.platform = platform->GetObject();
-			return config;
-		}
-
-		return BNGetDemanglerConfigForPlatform(platform ? platform->GetObject() : nullptr, simplify);
-	}
-
-	static bool DemangleWithNamedDemangler(const char* demanglerName, Platform* platform, const std::string& mangledName,
-		Ref<Type>& outType, QualifiedName& outVarName, BinaryView* view, bool simplify)
-	{
-		BNDemangler* demangler = BNGetDemanglerByName(demanglerName);
-		if (!demangler)
-			return false;
-
-		BNDemanglerConfig apiConfig = DemanglerConfigForContext(platform, view, simplify);
-		BNDemanglerResult apiResult = {};
-		if (!BNDemangleWithDemangler(demangler, mangledName.c_str(), &apiConfig, &apiResult))
-			return false;
-
 		DemanglerResult result;
-		StoreDemanglerResult(apiResult, result);
-		BNFreeDemanglerResult(&apiResult);
-		outType = result.type;
-		outVarName = result.name;
-		return true;
-	}
+		if (!apiResult)
+			return result;
 
-	std::optional<DemanglerResult> TryDemangle(const std::string& mangledName, const DemanglerConfig& config)
-	{
-		BNDemanglerConfig apiConfig = config.GetAPIObject();
-		BNDemanglerResult apiResult = {};
-		if (!BNDemangle(mangledName.c_str(), &apiConfig, &apiResult))
-			return std::nullopt;
-
-		DemanglerResult result;
-		StoreDemanglerResult(apiResult, result);
-		BNFreeDemanglerResult(&apiResult);
+		result.name = QualifiedName::FromAPIObject(&apiResult->name);
+		if (apiResult->type)
+			result.type = new Type(BNNewTypeReference(apiResult->type));
+		else
+			result.type = nullptr;
 		return result;
 	}
 
-	bool DemangleGeneric(Platform* platform, const std::string& name, Ref<Type>& outType,
-		QualifiedName& outVarName, Ref<BinaryView> view, bool simplify)
+	DemanglerResult DemanglerResult::FromAPIObjectAndFree(BNDemanglerResult* apiResult)
 	{
-		BNDemanglerConfig apiConfig = DemanglerConfigForContext(platform, view, simplify);
-		BNDemanglerResult apiResult = {};
-		if (!BNDemangle(name.c_str(), &apiConfig, &apiResult))
-			return false;
-
-		DemanglerResult result;
-		StoreDemanglerResult(apiResult, result);
-		BNFreeDemanglerResult(&apiResult);
-		outType = result.type;
-		outVarName = result.name;
-		return true;
+		DemanglerResult result = FromAPIObject(apiResult);
+		BNFreeDemanglerResult(apiResult);
+		return result;
 	}
 
-	bool DemangleLLVM(const std::string& mangledName, QualifiedName& outVarName,
-		BinaryView* view)
+	BNDemanglerResult DemanglerResult::ToAPIObject() const
 	{
-		const bool simplify = Settings::Instance()->Get<bool>("analysis.types.templateSimplifier", view);
-		return DemangleLLVM(mangledName, outVarName, simplify);
+		return {
+			name.GetAPIObject(),
+			type ? BNNewTypeReference(type->m_object) : nullptr,
+		};
 	}
 
 	bool DemangleLLVM(const std::string& mangledName, QualifiedName& outVarName,
 		bool simplify)
 	{
 		Ref<Type> outType;
-		return DemangleWithNamedDemangler(BN_DEMANGLER_LLVM, nullptr, mangledName, outType, outVarName, nullptr,
-			simplify);
+		return StoreDemangleResult(
+			DemangleWithDemangler(GetLLVMDemangler(), nullptr, mangledName, simplify), outType, outVarName);
 	}
 
-	bool DemangleMS(Platform* platform, const std::string& mangledName, Ref<Type>& outType, QualifiedName& outVarName,
+
+	bool DemangleMS(const Platform* platform, const std::string& mangledName, Ref<Type>& outType, QualifiedName& outVarName,
 	    bool simplify)
 	{
-		return DemangleWithNamedDemangler(BN_DEMANGLER_MSVC, platform, mangledName, outType, outVarName, nullptr,
-			simplify);
+		return StoreDemangleResult(
+			DemangleWithDemangler(GetMSVCDemangler(), platform, mangledName, simplify), outType,
+			outVarName);
 	}
 
-	bool DemangleGNU3(Platform* platform, const std::string& mangledName, Ref<Type>& outType, QualifiedName& outVarName,
+
+	bool DemangleGNU3(const Platform* platform, const std::string& mangledName, Ref<Type>& outType, QualifiedName& outVarName,
 	    bool simplify)
 	{
 		outVarName.clear();
-		return DemangleWithNamedDemangler(BN_DEMANGLER_GNU3, platform, mangledName, outType, outVarName, nullptr,
-			simplify);
+		return StoreDemangleResult(
+			DemangleWithDemangler(GetGNU3Demangler(), platform, mangledName, simplify), outType,
+			outVarName);
+	}
+
+
+	bool IsMSVCMangledString(const std::string& mangledName)
+	{
+		BNDemangler* demangler = GetMSVCDemangler();
+		return demangler && BNIsDemanglerMangledName(demangler, mangledName.c_str());
 	}
 
 
 	bool IsGNU3MangledString(const std::string& mangledName)
 	{
-		BNDemangler* demangler = BNGetDemanglerByName(BN_DEMANGLER_GNU3);
+		BNDemangler* demangler = GetGNU3Demangler();
 		return demangler && BNIsDemanglerMangledName(demangler, mangledName.c_str());
 	}
 
 
-	Demangler::Demangler(const std::string& name): m_nameForRegister(name)
+	Demangler::Demangler(std::string demanglerName): m_nameForRegister(std::move(demanglerName))
 	{
 	}
 
@@ -169,34 +189,25 @@ namespace BinaryNinja {
 		m_object = demangler;
 	}
 
-	bool Demangler::IsMangledStringCallback(void* ctxt, const char* name)
+	bool Demangler::IsMangledStringCallback(void* ctxt, const char* mangledName)
 	{
-		Demangler* demangler = (Demangler*)ctxt;
-		return demangler->IsMangledString(name);
+		auto demangler = static_cast<Demangler*>(ctxt);
+		return demangler->IsMangledString(mangledName);
 	}
 
-	bool Demangler::DemangleCallback(void* ctxt, const char* name, const BNDemanglerConfig* config,
+	bool Demangler::DemangleCallback(void* ctxt, const char* mangledName, const BNDemanglerConfig* config,
 		BNDemanglerResult* result)
 	{
-		Demangler* demangler = (Demangler*)ctxt;
+		auto demangler = static_cast<Demangler*>(ctxt);
 
-		if (!name || !result)
+		if (!mangledName || !result)
 			return false;
 
-		auto demangleResult = demangler->Demangle(name, DemanglerConfigFromAPIObject(config));
+		auto demangleResult = demangler->Demangle(mangledName, DemanglerConfig::FromAPIObject(config));
 		if (!demangleResult)
 			return false;
 
-		if (demangleResult->type)
-		{
-			result->type = BNNewTypeReference(demangleResult->type->m_object);
-		}
-		else
-		{
-			result->type = nullptr;
-		}
-		result->name = demangleResult->name.GetAPIObject();
-
+		*result = demangleResult->ToAPIObject();
 		return true;
 	}
 
@@ -205,15 +216,30 @@ namespace BinaryNinja {
 		BNFreeDemanglerResult(result);
 	}
 
-	void Demangler::Register(Demangler* demangler)
+	bool Demangler::Register(Demangler* demangler)
 	{
+		if (!demangler)
+			return false;
+
 		BNDemanglerCallbacks cb = {};
 		cb.size = sizeof(cb);
-		cb.context = (void*)demangler;
+		cb.context = reinterpret_cast<void*>(demangler);
 		cb.isMangledString = IsMangledStringCallback;
 		cb.demangle = DemangleCallback;
 		cb.freeResult = FreeResultCallback;
-		demangler->m_object = BNRegisterDemangler(demangler->m_nameForRegister.c_str(), &cb);
+		BNDemangler* object = BNRegisterDemangler(demangler->m_nameForRegister.c_str(), &cb);
+		if (!object)
+			return false;
+
+		demangler->m_object = object;
+		return true;
+	}
+
+	bool Demangler::Promote(const Ref<Demangler>& demangler)
+	{
+		if (!demangler || !demangler->m_object)
+			return false;
+		return BNPromoteDemangler(demangler->m_object);
 	}
 
 	std::vector<Ref<Demangler>> Demangler::GetList()
@@ -228,17 +254,22 @@ namespace BinaryNinja {
 		return result;
 	}
 
-	Ref<Demangler> Demangler::GetByName(const std::string& name)
+	Ref<Demangler> Demangler::GetByName(const std::string& demanglerName)
 	{
-		BNDemangler* result = BNGetDemanglerByName(name.c_str());
+		BNDemangler* result = BNGetDemanglerByName(demanglerName.c_str());
 		if (!result)
 			return nullptr;
 		return new CoreDemangler(result);
 	}
 
-	void Demangler::Promote(Ref<Demangler> demangler)
+	std::optional<Demangler::Result> Demangler::DemangleAny(const std::string& mangledName, const Config& config)
 	{
-		BNPromoteDemangler(demangler->m_object);
+		BNDemanglerConfig apiConfig = config.ToAPIObject();
+		BNDemanglerResult apiResult = {};
+		if (!BNDemangle(mangledName.c_str(), &apiConfig, &apiResult))
+			return std::nullopt;
+
+		return Result::FromAPIObjectAndFree(&apiResult);
 	}
 
 	std::string Demangler::GetName() const
@@ -260,16 +291,13 @@ namespace BinaryNinja {
 
 	std::optional<Demangler::Result> CoreDemangler::Demangle(const std::string& name, const Config& config)
 	{
-		BNDemanglerConfig apiConfig = config.GetAPIObject();
+		BNDemanglerConfig apiConfig = config.ToAPIObject();
 		BNDemanglerResult apiResult = {};
 		bool success = BNDemangleWithDemangler(m_object, name.c_str(), &apiConfig, &apiResult);
 
 		if (!success)
 			return std::nullopt;
 
-		Result result;
-		StoreDemanglerResult(apiResult, result);
-		BNFreeDemanglerResult(&apiResult);
-		return result;
+		return Result::FromAPIObjectAndFree(&apiResult);
 	}
 }  // namespace BinaryNinja

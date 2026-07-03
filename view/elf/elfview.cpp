@@ -808,6 +808,7 @@ bool ElfView::Init()
 	if (!platform)
 		platform = entryPointArch->GetStandalonePlatform();
 
+	m_plat = platform;
 	SetDefaultPlatform(platform);
 	GetParentView()->SetDefaultPlatform(platform);
 
@@ -2617,19 +2618,17 @@ void ElfView::DefineElfSymbol(BNSymbolType type, const string& incomingName, uin
 		string shortName = rawName;
 		string fullName = rawName;
 		Confidence<Ref<Type>> typeRef = symbolTypeRef;
-		if (m_arch)
+
+		DemanglerConfig config {m_plat, this, m_simplifyTemplates};
+		if (auto demangled = Demangler::DemangleAny(rawName, config))
 		{
-			QualifiedName demangledName;
-			Ref<Type> demangledType;
-			if (DemangleGeneric(GetDefaultPlatform(), rawName, demangledType, demangledName, this, m_simplifyTemplates))
-			{
-				shortName = demangledName.GetString();
-				fullName = shortName;
-				if (demangledType)
-					fullName += demangledType->GetStringAfterName();
-				if (!typeRef && m_extractMangledTypes && !GetDefaultPlatform()->GetFunctionByName(rawName))
-					typeRef = demangledType;
-			}
+			auto demangledType = demangled->type;
+			shortName = demangled->name.GetString();
+			fullName = shortName;
+			if (demangledType)
+				fullName += demangledType->GetStringAfterName();
+			if (!typeRef && m_extractMangledTypes && !m_plat->GetFunctionByName(rawName))
+				typeRef = demangledType;
 		}
 
 		if (!typeRef && m_arch && (m_arch->GetName() == "hexagon" || m_arch->GetName() == "tms320c6x"))

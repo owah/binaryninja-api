@@ -3501,7 +3501,6 @@ bool DemangleGNU3Static::DemangleStringGNU3(Architecture* arch, const string& na
 	return DemangleStringGNU3(GetDemanglerFallbackPlatform(), name, outType, outVarName, simplifyTemplates);
 }
 
-
 // ===== Explicit template instantiation =====
 
 
@@ -3520,10 +3519,14 @@ public:
 		return DemangleGNU3Static::IsGNU3MangledString(name);
 	}
 
-	virtual bool Demangle(const string& name, const DemanglerConfig& config, DemanglerResult& result) override
+	virtual std::optional<Result> Demangle(const string& name, const Config& config) override
 	{
-		return DemangleGNU3Static::DemangleStringGNU3(config.GetPlatform(), name, result.type, result.name,
-		    config.simplifyTemplates);
+		Result result;
+		Platform& platform = config.GetPlatform();
+		if (!DemangleGNU3Static::DemangleStringGNU3(platform, name, result.type, result.name,
+		    config.simplifyTemplates))
+			return std::nullopt;
+		return result;
 	}
 };
 
@@ -3543,7 +3546,6 @@ extern "C"
 #endif
 	{
 		static GNU3Demangler* demangler = new GNU3Demangler();
-		Demangler::Register(demangler);
-		return true;
+		return Demangler::Register(demangler);
 	}
 }

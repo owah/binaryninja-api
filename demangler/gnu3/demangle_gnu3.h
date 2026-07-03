@@ -19,6 +19,9 @@
 // XXX: Compiled directly into the core for performance reasons
 // Will still work fine compiled independently, just at about a
 // 50-100% performance penalty due to FFI overhead
+// TODO: the above assessment needs to be re-evaluated after the
+// refactor to use DemangledTypeNode and the simplifier refactor
+// its very possible this performance penalty is completely gone
 #ifdef BINARYNINJACORE_LIBRARY
 #include "qualifiedname.h"
 #include "type.h"

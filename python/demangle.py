@@ -19,7 +19,6 @@
 # IN THE SOFTWARE.
 
 import ctypes
-import traceback
 
 # Binary Ninja components
 import binaryninja
@@ -30,29 +29,101 @@ from .log import log_error_for_exception
 from .architecture import Architecture
 from .platform import Platform
 from .settings import Settings
-from typing import Iterable, List, Optional, Union, Tuple, Any
+from typing import Iterable, List, Optional, Union, Any, NamedTuple
 
 _DEMANGLER_MSVC = "msvc"
 _DEMANGLER_GNU3 = "gnu3"
 _DEMANGLER_LLVM = "llvm"
+_demangler_cache = {}
 
 
-def _demangler_config_for_context(
-		arch_or_platform: Union[Architecture, Platform],
-		view: Optional['binaryview.BinaryView'] = None,
-		simplify: bool = False
-):
-	if isinstance(arch_or_platform, Architecture):
-		platform_obj = arch_or_platform.standalone_platform
-	elif isinstance(arch_or_platform, Platform):
-		platform_obj = arch_or_platform
-	else:
-		raise TypeError("Unexpected arch or platform type")
+def _get_demangler_by_name(name: str):
+	demangler = _demangler_cache.get(name)
+	if demangler is not None:
+		return demangler
 
-	config = core.BNGetDemanglerConfigForPlatform(platform_obj.handle if platform_obj else None, simplify)
-	if view is not None:
-		config.view = view.handle
-	return config
+	demangler = core.BNGetDemanglerByName(name)
+	if demangler is not None:
+		_demangler_cache[name] = demangler
+	return demangler
+
+
+class DemangleResult(NamedTuple):
+	"""
+	Tuple-compatible demangle result.
+	"""
+
+	type: Optional['types.Type']
+	name: Union['types.QualifiedName', List[str], str]
+
+
+def _demangle_result_from_core_and_free(
+		result: core.BNDemanglerResult,
+		qualified_name: bool = False
+) -> DemangleResult:
+	out_type = None
+	try:
+		if result.type:
+			out_type = core.BNNewTypeReference(result.type)
+		result_var_name = types.QualifiedName._from_core_struct(result.name)
+
+		result_type = None
+		if out_type:
+			result_type = types.Type.create(handle=out_type)
+			out_type = None
+		result_name = result_var_name if qualified_name else result_var_name.name
+		return DemangleResult(result_type, result_name)
+	finally:
+		if out_type:
+			core.BNFreeType(out_type)
+		core.BNFreeDemanglerResult(result)
+
+
+class DemanglerConfig:
+	"""
+	Configuration used by demangler APIs.
+	"""
+
+	def __init__(
+			self,
+			arch_or_platform: Optional[Union[Architecture, Platform]] = None,
+			view: Optional['binaryview.BinaryView'] = None,
+			simplify: bool = False
+	):
+		if isinstance(arch_or_platform, Architecture):
+			platform_obj = arch_or_platform.standalone_platform
+		elif isinstance(arch_or_platform, Platform):
+			platform_obj = arch_or_platform
+		elif arch_or_platform is None:
+			platform_obj = view.platform if view is not None else None
+		else:
+			raise TypeError("Unexpected arch or platform type")
+
+		self.platform = platform_obj
+		self.view = view
+		self.simplify_templates = simplify
+
+	def _to_core_struct(self) -> core.BNDemanglerConfig:
+		config = core.BNDemanglerConfig()
+		config.platform = self.platform.handle if self.platform is not None else None
+		config.view = self.view.handle if self.view is not None else None
+		config.simplifyTemplates = self.simplify_templates
+		return config
+
+	@classmethod
+	def _from_core_struct(cls, config: core.BNDemanglerConfig) -> 'DemanglerConfig':
+		if hasattr(config, "contents"):
+			config = config.contents
+
+		platform = None
+		if config.platform:
+			platform = Platform(handle=core.BNNewPlatformReference(config.platform))
+
+		view = None
+		if config.view:
+			view = binaryview.BinaryView(handle=core.BNNewViewReference(config.view))
+
+		return cls(platform, view, config.simplifyTemplates)
 
 
 def get_qualified_name(names: Iterable[str]):
@@ -65,12 +136,46 @@ def get_qualified_name(names: Iterable[str]):
 	:rtype: str
 	:Example:
 
-		>>> type, name = demangle_ms(Architecture["x86_64"], "?testf@Foobar@@SA?AW4foo@1@W421@@Z")
-		>>> get_qualified_name(name)
+		>>> result = demangle_ms(Architecture["x86_64"], "?testf@Foobar@@SA?AW4foo@1@W421@@Z")
+		>>> get_qualified_name(result.name)
 		'Foobar::testf'
 		>>>
 	"""
 	return "::".join(names)
+
+
+def demangle_any(
+		mangled_name: str,
+		config: DemanglerConfig
+) -> Optional[DemangleResult]:
+	"""
+	``demangle_any`` demangles a mangled symbol name using a prebuilt demangler config.
+
+	:param str mangled_name: a mangled symbol name
+	:param DemanglerConfig config: Platform/view/options used while demangling
+	:return: returns a DemangleResult with type and name fields, or None on error. DemangleResult can be unpacked as (type, name).
+	:rtype: Optional[DemangleResult]
+	:Example:
+
+		>>> config = DemanglerConfig(Architecture["x86_64"])
+		>>> result = demangle_any("?testf@Foobar@@SA?AW4foo@1@W421@@Z", config)
+		>>> result.type
+		<type: immutable:FunctionTypeClass 'enum Foobar::foo __cdecl(enum Foobar::foo)'>
+		>>> result.name
+		['Foobar', 'testf']
+	"""
+	if not isinstance(config, DemanglerConfig):
+		raise TypeError("config must be a DemanglerConfig")
+
+	result = core.BNDemanglerResult()
+	api_config = config._to_core_struct()
+	if not core.BNDemangle(mangled_name, api_config, result):
+		return None
+
+	try:
+		return _demangle_result_from_core_and_free(result)
+	except UnicodeDecodeError:
+		return None
 
 
 def demangle_generic(
@@ -78,7 +183,7 @@ def demangle_generic(
 		mangled_name: str,
 		view: Optional['binaryview.BinaryView'] = None,
 		simplify: bool = False
-) -> Optional[Tuple[Optional['types.Type'], List[str]]]:
+) -> DemangleResult:
 	"""
 	``demangle_generic`` demangles a mangled symbol name to a Type object.
 
@@ -86,45 +191,18 @@ def demangle_generic(
 	:param str mangled_name: a mangled symbol name
 	:param view: (optional) view of the binary containing the mangled name
 	:param simplify: (optional) Whether to simplify demangled names
-	:return: returns tuple of (Optional[Type], demangled_name) or None on error
-	:rtype: Tuple
+	:return: returns a DemangleResult with type and name fields. DemangleResult can be unpacked as (type, name).
+	:rtype: DemangleResult
 	:Example:
 
 		>>> demangle_generic(Architecture["x86_64"], "?testf@Foobar@@SA?AW4foo@1@W421@@Z")
-		(<type: public: static enum Foobar::foo __cdecl (enum Foobar::foo)>, ['Foobar', 'testf'])
+		DemangleResult(type=<type: immutable:FunctionTypeClass 'enum Foobar::foo __cdecl(enum Foobar::foo)'>, name=['Foobar', 'testf'])
 		>>> demangle_generic(Architecture["x86_64"], "__ZN20ArmCallingConvention27GetIntegerArgumentRegistersEv")
-		(<type: immutable:FunctionTypeClass 'int64_t()'>, ['ArmCallingConvention', 'GetIntegerArgumentRegisters'])
+		DemangleResult(type=<type: immutable:FunctionTypeClass 'int64_t()'>, name=['ArmCallingConvention', 'GetIntegerArgumentRegisters'])
 		>>>
 	"""
-	arch = None
-	if isinstance(archOrPlatform, Architecture):
-		arch = archOrPlatform
-	elif isinstance(archOrPlatform, Platform):
-		arch = archOrPlatform.arch
-	else:
-		raise TypeError("Unexpected arch or platform type")
-
-	out_type = ctypes.POINTER(core.BNType)()
-	result = core.BNDemanglerResult()
-	config = _demangler_config_for_context(archOrPlatform, view, simplify)
-	if not core.BNDemangle(mangled_name, config, result):
-		return None, [mangled_name]
-
-	try:
-		if result.type:
-			out_type = core.BNNewTypeReference(result.type)
-		result_var_name = types.QualifiedName._from_core_struct(result.name)
-	except UnicodeDecodeError:
-		if out_type:
-			core.BNFreeType(out_type)
-		core.BNFreeDemanglerResult(result)
-		return None, [mangled_name]
-
-	result_type = None
-	if out_type:
-		result_type = types.Type.create(handle=out_type)
-	core.BNFreeDemanglerResult(result)
-	return result_type, result_var_name.name
+	config = DemanglerConfig(archOrPlatform, view, simplify)
+	return demangle_any(mangled_name, config) or DemangleResult(None, [mangled_name])
 
 
 def demangle_llvm(mangled_name: str, options: Optional[Union[bool, binaryview.BinaryView]] = None) -> Optional[List[str]]:
@@ -143,10 +221,9 @@ def demangle_llvm(mangled_name: str, options: Optional[Union[bool, binaryview.Bi
 		>>>
 	"""
 	view, simplify_templates = _simplify_from_compat_option(options)
-	config = core.BNGetDemanglerConfigForBinaryView(view.handle) if view is not None else core.BNGetDefaultDemanglerConfig()
-	config.simplifyTemplates = simplify_templates
+	config = DemanglerConfig(view=view, simplify=simplify_templates)._to_core_struct()
 
-	demangler = core.BNGetDemanglerByName(_DEMANGLER_LLVM)
+	demangler = _get_demangler_by_name(_DEMANGLER_LLVM)
 	if demangler is None:
 		return None
 
@@ -154,10 +231,7 @@ def demangle_llvm(mangled_name: str, options: Optional[Union[bool, binaryview.Bi
 	if not core.BNDemangleWithDemangler(demangler, mangled_name, config, result):
 		return None
 
-	try:
-		return types.QualifiedName._from_core_struct(result.name).name
-	finally:
-		core.BNFreeDemanglerResult(result)
+	return _demangle_result_from_core_and_free(result).name
 
 
 def _simplify_from_compat_option(simplify: Optional[Union[bool, binaryview.BinaryView]]):
@@ -175,46 +249,39 @@ def _demangle_type_and_name(
 		mangled_name: str,
 		simplify: Optional[Union[bool, binaryview.BinaryView]],
 		demangler_name: str
-):
+) -> DemangleResult:
 	view, simplify_templates = _simplify_from_compat_option(simplify)
 
 	binaryninja._init_plugins()
-	demangler = core.BNGetDemanglerByName(demangler_name)
+	demangler = _get_demangler_by_name(demangler_name)
 	if demangler is None:
-		return (None, mangled_name)
+		return DemangleResult(None, mangled_name)
 
-	config = _demangler_config_for_context(arch_or_platform, view, simplify_templates)
+	config = DemanglerConfig(arch_or_platform, view, simplify_templates)._to_core_struct()
 	result = core.BNDemanglerResult()
 	if not core.BNDemangleWithDemangler(demangler, mangled_name, config, result):
-		return (None, mangled_name)
+		return DemangleResult(None, mangled_name)
 
-	try:
-		result_type = None
-		if result.type:
-			result_type = types.Type.create(handle=core.BNNewTypeReference(result.type))
-		result_var_name = types.QualifiedName._from_core_struct(result.name)
-		return (result_type, result_var_name.name)
-	finally:
-		core.BNFreeDemanglerResult(result)
+	return _demangle_result_from_core_and_free(result)
 
 
 def demangle_ms(
 		arch_or_platform: Union[Architecture, Platform],
 		mangled_name: str,
 		simplify: bool = False
-):
+) -> DemangleResult:
 	"""
 	``demangle_ms`` demangles a mangled Microsoft Visual Studio C++ name to a Type object.
 
 	:param Union[Architecture, Platform] arch_or_platform: Architecture or Platform for the symbol. Required for pointer/integer sizes and calling conventions.
 	:param str mangled_name: a mangled Microsoft Visual Studio C++ name
 	:param bool simplify: (optional) Whether to simplify demangled names
-	:return: returns tuple of (Type, demangled_name) or (None, mangled_name) on error
-	:rtype: Tuple[Optional[Type], Union[str, List[str]]]
+	:return: returns a DemangleResult with type and name fields, or DemangleResult(None, mangled_name) on error
+	:rtype: DemangleResult
 	:Example:
 
 		>>> demangle_ms(Architecture["x86_64"], "?testf@Foobar@@SA?AW4foo@1@W421@@Z")
-		(<type: public: static enum Foobar::foo __cdecl (enum Foobar::foo)>, ['Foobar', 'testf'])
+		DemangleResult(type=<type: immutable:FunctionTypeClass 'enum Foobar::foo __cdecl(enum Foobar::foo)'>, name=['Foobar', 'testf'])
 		>>>
 	"""
 	return _demangle_type_and_name(arch_or_platform, mangled_name, simplify, _DEMANGLER_MSVC)
@@ -224,15 +291,15 @@ def demangle_gnu3(
 		arch_or_platform: Union[Architecture, Platform],
 		mangled_name: str,
 		simplify: bool = False
-):
+) -> DemangleResult:
 	"""
 	``demangle_gnu3`` demangles a mangled name to a Type object.
 
 	:param Union[Architecture, Platform] arch_or_platform: Architecture or Platform for the symbol. Required for pointer and integer sizes.
 	:param str mangled_name: a mangled GNU3 name
 	:param bool simplify: (optional) Whether to simplify demangled names
-	:return: returns tuple of (Type, demangled_name) or (None, mangled_name) on error
-	:rtype: Tuple[Optional[Type], Union[str, List[str]]]
+	:return: returns a DemangleResult with type and name fields, or DemangleResult(None, mangled_name) on error
+	:rtype: DemangleResult
 	"""
 	return _demangle_type_and_name(arch_or_platform, mangled_name, simplify, _DEMANGLER_GNU3)
 
@@ -250,7 +317,7 @@ class _DemanglerMetaclass(type):
 
 	def __getitem__(self, value):
 		binaryninja._init_plugins()
-		handle = core.BNGetDemanglerByName(str(value))
+		handle = _get_demangler_by_name(str(value))
 		if handle is None:
 			raise KeyError(f"'{value}' is not a valid Demangler")
 		return CoreDemangler(handle)
@@ -278,6 +345,14 @@ class Demangler(metaclass=_DemanglerMetaclass):
 	Pluggable name demangling interface. See :py:func:`register` and :py:func:`demangle`
 	for details on the process of this interface.
 
+	Custom Demangler subclasses must be registered during plugin initialization. After
+	plugin loading completes, the demangler registry is finalized so named lookups and
+	priority order can be cached efficiently. Registration and promotion attempts after
+	that point return False. In practice, this means Python demanglers should call
+	``MyDemangler.register()`` from plugin module initialization, before APIs such as
+	``list(Demangler)``, ``Demangler["name"]``, or opening a view trigger plugin
+	initialization.
+
 	The list of Demanglers can be queried:
 
 		>>> list(Demangler)
@@ -300,6 +375,13 @@ class Demangler(metaclass=_DemanglerMetaclass):
 		"""
 		Register a custom Demangler. Newly registered demanglers will get priority over
 		previously registered demanglers and built-in demanglers.
+
+		Demanglers must be registered during plugin initialization. After plugin loading
+		completes, the demangler registry is finalized so named lookups and priority order
+		can be cached efficiently, and further registration attempts fail.
+
+		:return: True if registration succeeded; False if the demangler was invalid or
+		         registration has already been finalized.
 		"""
 		demangler = cls()
 
@@ -313,22 +395,28 @@ class Demangler(metaclass=_DemanglerMetaclass):
 		demangler._cb.demangle = demangler._cb.demangle.__class__(demangler._demangle)
 		demangler._cb.freeResult = demangler._cb.freeResult.__class__(demangler._free_result)
 		demangler.handle = core.BNRegisterDemangler(cls.name, demangler._cb)
+		if not demangler.handle:
+			return False
+
 		cls._registered_demanglers.append(demangler)
+		return True
 
 	@classmethod
 	def promote(cls, demangler):
 		"""
 		Promote a demangler to the highest-priority position.
 
-			>>> list(Demangler)
-			[<Demangler: msvc>, <Demangler: gnu3>, <Demangler: llvm>]
-			>>> Demangler.promote(list(Demangler)[0])
-			>>> list(Demangler)
-			[<Demangler: gnu3>, <Demangler: llvm>, <Demangler: msvc>]
+		Demanglers must be promoted during plugin initialization. After plugin loading
+		completes, the demangler registry is finalized so priority order can be cached
+		efficiently, and further promotion attempts fail.
 
 		:param demangler: Demangler to promote
+		:return: True if promotion succeeded; False if the demangler was invalid or
+		         promotion has already been finalized.
 		"""
-		core.BNPromoteDemangler(demangler.handle)
+		if demangler is None or demangler.handle is None:
+			return False
+		return core.BNPromoteDemangler(demangler.handle)
 
 	def __eq__(self, other):
 		if not isinstance(other, Demangler):
@@ -350,22 +438,9 @@ class Demangler(metaclass=_DemanglerMetaclass):
 
 	def _demangle(self, ctxt, name, config, result):
 		try:
-			api_config = config.contents
-			api_platform = None
-			api_arch = None
-			if api_config.platform is not None:
-				api_platform = Platform(handle=core.BNNewPlatformReference(api_config.platform))
-				api_arch = api_platform.arch
-			api_view = None
-			if api_config.view is not None:
-				api_view = binaryview.BinaryView(handle=core.BNNewViewReference(api_config.view))
-				if api_arch is None and api_view.platform is not None:
-					api_arch = api_view.platform.arch
+			api_config = DemanglerConfig._from_core_struct(config)
 
-			if api_arch is None:
-				return False
-
-			demangle_result = self.demangle(api_arch, core.pyNativeStr(name), api_view, api_config.simplifyTemplates)
+			demangle_result = self.demangle(core.pyNativeStr(name), api_config)
 			if demangle_result is None:
 				return False
 			type, var_name = demangle_result
@@ -410,16 +485,15 @@ class Demangler(metaclass=_DemanglerMetaclass):
 
 	def demangle(
 			self,
-			arch: Architecture,
 			name: str,
-			view: Optional['binaryview.BinaryView'] = None,
-			simplify: bool = False
-	) -> Optional[Tuple['types.Type', 'types.QualifiedName']]:
+			config: DemanglerConfig
+	) -> Optional[DemangleResult]:
 		"""
 		Demangle a raw name into a Type and QualifiedName.
 
-		The result of this function is a (Type, QualifiedName) tuple for the demangled
-		name's details.
+		The result of this function is a DemangleResult with Type and QualifiedName
+		fields for the demangled name's details. DemangleResult can be unpacked as
+		(type, name).
 
 		Any unresolved named types referenced by the resulting Type will be created as
 		empty structures or void typedefs in the view, if the result is used on
@@ -433,16 +507,21 @@ class Demangler(metaclass=_DemanglerMetaclass):
 		If this call returns None, the next most recently used demangler(s) will be tried instead.
 
 		If the mangled name has no type information, but a name is still possible to extract,
-		this function may return a successful (None, <name>) result, which will be accepted.
+		this function may return a successful DemangleResult(None, <name>), which will be accepted.
 
-		:param arch: Architecture for context in which the name exists, eg for pointer sizes
 		:param name: Raw mangled name
-		:param view: (Optional) BinaryView context in which the name exists, eg for type lookup
-		:param simplify: Whether to simplify templates while demangling
-		:return: Tuple of (Type, Name) if successful, None if not. Type may be None if only
-		         a demangled name can be recovered from the raw name.
+		:param config: Platform/view/options used while demangling
+		:return: DemangleResult with type and name fields if successful, None if not.
+		         Type may be None if only a demangled name can be recovered from the raw name.
 		"""
 		raise NotImplementedError()
+
+	@staticmethod
+	def demangle_any(name: str, config: DemanglerConfig) -> Optional[DemangleResult]:
+		"""
+		Demangle a raw name using a prebuilt DemanglerConfig.
+		"""
+		return demangle_any(name, config)
 
 
 class CoreDemangler(Demangler):
@@ -450,17 +529,11 @@ class CoreDemangler(Demangler):
 	def is_mangled_string(self, name: str) -> bool:
 		return core.BNIsDemanglerMangledName(self.handle, name)
 
-	def demangle(self, arch: Architecture, name: str, view: Optional['binaryview.BinaryView'] = None,
-		simplify: bool = False) -> Optional[Tuple[Optional['types.Type'], 'types.QualifiedName']]:
+	def demangle(self, name: str, config: DemanglerConfig) -> Optional[DemangleResult]:
 		result = core.BNDemanglerResult()
-		config = _demangler_config_for_context(arch, view, simplify)
+		api_config = config._to_core_struct()
 
-		if not core.BNDemangleWithDemangler(self.handle, name, config, result):
+		if not core.BNDemangleWithDemangler(self.handle, name, api_config, result):
 			return None
 
-		result_type = None
-		if result.type:
-			result_type = types.Type.create(handle=core.BNNewTypeReference(result.type))
-		result_var_name = types.QualifiedName._from_core_struct(result.name)
-		core.BNFreeDemanglerResult(result)
-		return result_type, result_var_name
+		return _demangle_result_from_core_and_free(result, qualified_name=True)

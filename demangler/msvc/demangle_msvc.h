@@ -15,15 +15,16 @@
 #pragma once
 #include <functional>
 #include <optional>
-#include <utility>
 
 // XXX: Compiled directly into the core for performance reasons
 // Will still work fine compiled independently, just at about a
 // 50-100% performance penalty due to FFI overhead
+// TODO: the above assessment needs to be re-evaluated after the
+// refactor to use DemangledTypeNode and the simplifier refactor
+// its very possible this performance penalty is completely gone
 #ifdef BINARYNINJACORE_LIBRARY
 #include "qualifiedname.h"
 #include "type.h"
-#include "architecture.h"
 #include "binaryview.h"
 #include "demangle.h"
 #define BN BinaryNinjaCore
@@ -233,7 +234,7 @@ private:
 	_STD_STRING m_mangledName; // Owns the string; Reader points into it
 	Reader m_reader;
 	BackrefList m_backrefList;
-	std::reference_wrapper<BN::Platform> m_platform;
+	BN::DemanglerConfig m_config;
 	size_t m_templateParamDepth = 0;
 	size_t m_nestingDepth = 0;
 	using NestingGuard = DemangleNestingGuard;
@@ -245,11 +246,11 @@ private:
 	static bool FunctionTypeHasPointerSuffix(char functionType);
 	static _STD_STRING FormatFunctionScopeSignature(
 		const DemangledTypeNode& type, const NameList& scopeName, BN::Platform& platform);
-	BN::Platform& GetRenderingPlatform() const;
+	[[nodiscard]] BN::Platform& GetRenderingPlatform() const;
 	void AppendLocalScope(NameList& nameList, BackrefList& nameBackrefList, uint64_t scopeOrdinal, bool typeNameContext);
 	bool TryAppendLocalScopeAt(NameList& nameList, BackrefList& nameBackrefList, const char* encodedNumberStart,
 		bool typeNameContext);
-	_STD_STRING FormatTypeAndName(const DemangledTypeNode& type, const NameList& name) const;
+	[[nodiscard]] _STD_STRING FormatTypeAndName(const DemangledTypeNode& type, const NameList& name) const;
 	enum class TypeBackrefMode
 	{
 		RecordTopLevel,
@@ -327,12 +328,12 @@ private:
 	DemangleContext DemangleSymbol(BackrefList& backrefList);
 
 public:
-	Demangle(BN::Platform& platform, _STD_STRING  mangledName);
-	void Reset(BN::Platform& platform, const _STD_STRING& mangledName);
+	Demangle(const BN::DemanglerConfig& config, _STD_STRING  mangledName);
+	void Reset(const BN::DemanglerConfig& config, const _STD_STRING& mangledName);
 	Demangle(const Demangle&) = delete;
 	Demangle(Demangle&&) = delete;
 	Demangle& operator=(const Demangle&) = delete;
 	Demangle& operator=(Demangle&&) = delete;
 	DemangleContext DemangleSymbol();
-	std::pair<BN::Ref<BN::Type>, BN::QualifiedName> Finalize(bool simplifyTemplates = false);
+	BN::DemanglerResult Finalize();
 };

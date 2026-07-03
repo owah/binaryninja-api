@@ -85,8 +85,10 @@ void IdentifyStub(BinaryView& view, const SharedCacheController& controller, uin
 	if (!symbol.has_value())
 		return;
 
-	// TODO: The demangled type here is almost always wrong so we omit it for now.
-	auto [demangledName, demangledType] = symbol->DemangledName(view);
+	std::string demangledName = symbol->name;
+	DemanglerConfig config {view.GetDefaultPlatform(), &view, true};
+	if (auto demangled = Demangler::DemangleAny(symbol->name, config))
+		demangledName = demangled->name.GetString();
 	auto rawName = STUB_PREFIX + symbol->name;
 	auto shortName = STUB_PREFIX + demangledName;
 
@@ -95,8 +97,6 @@ void IdentifyStub(BinaryView& view, const SharedCacheController& controller, uin
 	{
 		// NOTE: The type library name is expected to be the image name currently.
 		// Try and pull the type from the associated type library (if there is one)
-		// TODO: The demangled type here is missing a param
-		// Ref<Type> selectedType = demangledType;
 		Ref<Type> selectedType = nullptr;
 		if (const auto image = controller.GetImageContaining(symbolAddr))
 		{
@@ -270,7 +270,12 @@ void AnalyzeStandardFunction(Ref<Function> func, Ref<MediumLevelILFunction> mlil
 		const auto symbol = controller.GetSymbolAt(symbolAddr);
 		if (!symbol.has_value())
 			return false;
-		view->DefineAutoSymbol(symbol->GetBNSymbol(*view));
+		std::string shortName = symbol->name;
+		DemanglerConfig config {view->GetDefaultPlatform(), view, true};
+		if (auto demangled = Demangler::DemangleAny(symbol->name, config))
+			shortName = demangled->name.GetString();
+		view->DefineAutoSymbol(
+			new Symbol(symbol->type, shortName, shortName, symbol->name, symbol->address, symbol->binding));
 		return true;
 	};
 

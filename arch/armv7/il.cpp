@@ -4651,12 +4651,37 @@ bool GetLowLevelILForArmInstruction(Architecture* arch, uint64_t addr, LowLevelI
 							il.ZeroExtend(get_register_size(op1.reg),
 								il.Register(get_register_size(op2.reg), op2.reg)))));
 					break;
+				case DT_F32:
+				case DT_F64:
+					ConditionExecute(il, instr.cond, il.SetRegister(get_register_size(op1.reg), op1.reg,
+						il.FloatConvert(get_register_size(op1.reg),
+							il.Register(get_register_size(op2.reg), op2.reg))));
+					break;
 				default:
 					break;
 				}
 				break;
 			default:
 				break;
+			}
+			break;
+		case ARMV7_VABS:
+			if (op1.cls != REG || op2.cls != REG || op3.cls != NONE)
+			{
+				ConditionExecute(il, instr.cond, il.Unimplemented());
+				break;
+			}
+
+			if ((instr.dataType == DT_F32) || (instr.dataType == DT_F64))
+			{
+				ConditionExecute(il, instr.cond,
+					il.SetRegister(get_register_size(op1.reg), op1.reg,
+						il.FloatAbs(get_register_size(op1.reg),
+							il.Register(get_register_size(op2.reg), op2.reg))));
+			}
+			else
+			{
+				ConditionExecute(il, instr.cond, il.Unimplemented());
 			}
 			break;
 		case ARMV7_VADD:

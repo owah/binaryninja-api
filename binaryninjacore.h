@@ -9427,6 +9427,7 @@ extern "C"
 	BINARYNINJACOREAPI BNPossibleValueSet BNPossibleValueSetNegate(const BNPossibleValueSet* object, size_t size);
 	BINARYNINJACOREAPI BNPossibleValueSet BNPossibleValueSetNot(const BNPossibleValueSet* object, size_t size);
 
+
 #ifdef __cplusplus
 }
 #endif

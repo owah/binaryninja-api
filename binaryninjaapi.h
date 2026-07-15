@@ -23354,7 +23354,6 @@ namespace BinaryNinja {
 		std::optional<DerivedString> RecognizeConstantData(
 			const HighLevelILInstruction& instr) override;
 	};
-
 }  // namespace BinaryNinja
 
 

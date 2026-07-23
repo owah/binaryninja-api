@@ -20,6 +20,7 @@
 
 #include "binaryninjaapi.h"
 #include <cinttypes>
+#include <vector>
 
 using namespace BinaryNinja;
 using namespace std;
@@ -349,21 +350,21 @@ QualifiedName QualifiedName::operator+(const QualifiedName& other) const
 BNQualifiedName QualifiedName::GetAPIObject() const
 {
 	BNQualifiedName result;
-	result.nameCount = m_name.size();
 	result.join = BNAllocString(m_join.c_str());
-	result.name = new char*[m_name.size()];
-	for (size_t i = 0; i < m_name.size(); i++)
-		result.name[i] = BNAllocString(m_name[i].c_str());
+	std::vector<const char*> namePtrs;
+	namePtrs.reserve(m_name.size());
+	for (const auto& name : m_name)
+		namePtrs.push_back(name.c_str());
+	result.nameCount = namePtrs.size();
+	result.name = BNAllocStringList(namePtrs.data(), namePtrs.size());
 	return result;
 }
 
 
 void QualifiedName::FreeAPIObject(BNQualifiedName* name)
 {
-	for (size_t i = 0; i < name->nameCount; i++)
-		BNFreeString(name->name[i]);
+	BNFreeStringList(name->name, name->nameCount);
 	BNFreeString(name->join);
-	delete[] name->name;
 }
 
 

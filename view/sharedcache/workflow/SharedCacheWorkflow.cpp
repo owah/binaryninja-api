@@ -22,6 +22,11 @@ struct WorkflowState
 {
 	bool autoLoadStubsAndDyldData = true;
 	bool autoLoadObjCStubRequirements = true;
+	DemanglerConfig demanglerConfig;
+
+	explicit WorkflowState(BinaryView* view) :
+		demanglerConfig(DemanglerConfig::ForBinaryView(view))
+	{}
 };
 
 std::shared_ptr<WorkflowState> GetWorkflowState(Ref<BinaryView> view)
@@ -37,20 +42,25 @@ std::shared_ptr<WorkflowState> GetWorkflowState(Ref<BinaryView> view)
 	readLock.unlock();
 
 	std::unique_lock<std::shared_mutex> writeLock(globalWorkflowStateMutex);
-	globalWorkflowState[viewId] = std::make_shared<WorkflowState>();
+	foundState = globalWorkflowState.find(viewId);
+	if (foundState != globalWorkflowState.end())
+		return foundState->second;
+
+	auto workflowState = std::make_shared<WorkflowState>(view);
+	globalWorkflowState[viewId] = workflowState;
 	Ref<Settings> settings = view->GetLoadSettings(VIEW_NAME);
 
 	bool autoLoadStubsAndDyldData = true;
 	if (settings && settings->Contains("loader.dsc.autoLoadStubsAndDyldData"))
 		autoLoadStubsAndDyldData = settings->Get<bool>("loader.dsc.autoLoadStubsAndDyldData", view);
-	globalWorkflowState[viewId]->autoLoadStubsAndDyldData = autoLoadStubsAndDyldData;
+	workflowState->autoLoadStubsAndDyldData = autoLoadStubsAndDyldData;
 
 	bool autoLoadObjC = true;
 	if (settings && settings->Contains("loader.dsc.autoLoadObjCStubRequirements"))
 		autoLoadObjC = settings->Get<bool>("loader.dsc.autoLoadObjCStubRequirements", view);
-	globalWorkflowState[viewId]->autoLoadObjCStubRequirements = autoLoadObjC;
+	workflowState->autoLoadObjCStubRequirements = autoLoadObjC;
 
-	return globalWorkflowState[viewId];
+	return workflowState;
 }
 
 // TODO: Add a type library cache to this workflow. (so we dont take global file lock)
@@ -67,7 +77,8 @@ Ref<TypeLibrary> TypeLibraryFromName(BinaryView& view, const std::string& name) 
 }
 
 // Rename and retype the stub function.
-void IdentifyStub(BinaryView& view, const SharedCacheController& controller, uint64_t stubFuncAddr, uint64_t symbolAddr) {
+void IdentifyStub(BinaryView& view, const SharedCacheController& controller, const DemanglerConfig& demanglerConfig,
+	uint64_t stubFuncAddr, uint64_t symbolAddr) {
 	static const char* STUB_PREFIX = "j_";
 	// Try and apply a version of the symbol address to the target address
 	if (const auto symbol = view.GetSymbolByAddress(symbolAddr))
@@ -85,8 +96,9 @@ void IdentifyStub(BinaryView& view, const SharedCacheController& controller, uin
 	if (!symbol.has_value())
 		return;
 
-	// TODO: The demangled type here is almost always wrong so we omit it for now.
-	auto [demangledName, demangledType] = symbol->DemangledName(view);
+	std::string demangledName = symbol->name;
+	if (auto result = Demangler::DemangleAny(symbol->name, demanglerConfig))
+		demangledName = result->name.GetString();
 	auto rawName = STUB_PREFIX + symbol->name;
 	auto shortName = STUB_PREFIX + demangledName;
 
@@ -95,8 +107,6 @@ void IdentifyStub(BinaryView& view, const SharedCacheController& controller, uin
 	{
 		// NOTE: The type library name is expected to be the image name currently.
 		// Try and pull the type from the associated type library (if there is one)
-		// TODO: The demangled type here is missing a param
-		// Ref<Type> selectedType = demangledType;
 		Ref<Type> selectedType = nullptr;
 		if (const auto image = controller.GetImageContaining(symbolAddr))
 		{
@@ -131,7 +141,8 @@ enum class StubImageLoading
 	AnyReferenced,
 };
 
-void AnalyzeStubFunction(Ref<Function> func, Ref<MediumLevelILFunction> mlil, SharedCacheController& controller, StubImageLoading imageLoading)
+void AnalyzeStubFunction(Ref<Function> func, Ref<MediumLevelILFunction> mlil, SharedCacheController& controller,
+	const DemanglerConfig& demanglerConfig, StubImageLoading imageLoading)
 {
 	// 1. Identify the load target and load the region, resolving the load to a const pointer.
 	// 2. We _should_ have a proper call now to the appropriate external function (external to the current image)
@@ -218,7 +229,7 @@ void AnalyzeStubFunction(Ref<Function> func, Ref<MediumLevelILFunction> mlil, Sh
 				// We have been promoted to the target pointer here!
 				const auto targetPtr = islandPtr;
 				// Here we expect the pointer value to be the address of the resulting function.
-				IdentifyStub(*view, controller, func->GetStart(), targetPtr);
+				IdentifyStub(*view, controller, demanglerConfig, func->GetStart(), targetPtr);
 			}
 			break;
 		default:
@@ -260,7 +271,8 @@ void AnalyzeStubFunction(Ref<Function> func, Ref<MediumLevelILFunction> mlil, Sh
 }
 
 // Automatically load the stub regions.
-void AnalyzeStandardFunction(Ref<Function> func, Ref<MediumLevelILFunction> mlil, SharedCacheController& controller)
+void AnalyzeStandardFunction(Ref<Function> func, Ref<MediumLevelILFunction> mlil,
+	SharedCacheController& controller, const DemanglerConfig& demanglerConfig)
 {
 	auto view = func->GetView();
 	auto identifyUnmappedSymbol = [&](uint64_t symbolAddr) {
@@ -270,7 +282,11 @@ void AnalyzeStandardFunction(Ref<Function> func, Ref<MediumLevelILFunction> mlil
 		const auto symbol = controller.GetSymbolAt(symbolAddr);
 		if (!symbol.has_value())
 			return false;
-		view->DefineAutoSymbol(symbol->GetBNSymbol(*view));
+		std::string shortName = symbol->name;
+		if (auto result = Demangler::DemangleAny(symbol->name, demanglerConfig))
+			shortName = result->name.GetString();
+		view->DefineAutoSymbol(
+			new Symbol(symbol->type, shortName, shortName, symbol->name, symbol->address, symbol->binding));
 		return true;
 	};
 
@@ -387,14 +403,14 @@ void AnalyzeFunction(Ref<AnalysisContext> ctx)
 	switch (functionType)
 	{
 		case StandardFunction:
-			AnalyzeStandardFunction(func, mlilSsa, *controller);
+			AnalyzeStandardFunction(func, mlilSsa, *controller, workflowState->demanglerConfig);
 			break;
 		case StubFunction:
-			AnalyzeStubFunction(func, mlilSsa, *controller,
+			AnalyzeStubFunction(func, mlilSsa, *controller, workflowState->demanglerConfig,
 				workflowState->autoLoadObjCStubRequirements ? StubImageLoading::ObjCMsgSendOnly : StubImageLoading::None);
 			break;
 		case ObjCStubFunction:
-			AnalyzeStubFunction(func, mlilSsa, *controller,
+			AnalyzeStubFunction(func, mlilSsa, *controller, workflowState->demanglerConfig,
 				workflowState->autoLoadObjCStubRequirements ? StubImageLoading::AnyReferenced : StubImageLoading::None);
 			break;
 	}

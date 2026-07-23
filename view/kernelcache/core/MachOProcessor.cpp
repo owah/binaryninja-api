@@ -4,11 +4,11 @@
 
 using namespace BinaryNinja;
 
-KernelCacheMachOProcessor::KernelCacheMachOProcessor(Ref<BinaryView> view)
+KernelCacheMachOProcessor::KernelCacheMachOProcessor(Ref<BinaryView> view) :
+	m_view(std::move(view)),
+	m_logger(new Logger("KernelCache.MachOProcessor", m_view->GetFile()->GetSessionId())),
+	m_demanglerConfig(DemanglerConfig::ForBinaryView(m_view))
 {
-	m_view = view;
-	m_logger = new Logger("KernelCache.MachOProcessor", view->GetFile()->GetSessionId());
-
 	// Adjust processor settings.
 	if (Ref<Settings> settings = m_view->GetLoadSettings(KC_VIEW_NAME))
 	{
@@ -65,7 +65,7 @@ void KernelCacheMachOProcessor::ApplyHeader(const KernelCache& cache, KernelCach
 		const auto symbols = header.ReadSymbolTable(m_view, symbolInfo, stringInfo);
 		for (const auto& sym : symbols)
 		{
-			auto [symbol, symbolType] = sym.GetBNSymbolAndType(*m_view);
+			auto [symbol, symbolType] = sym.GetBNSymbolAndType(m_demanglerConfig);
 			ApplySymbol(m_view, typeLib, symbol, symbolType);
 		}
 	}
@@ -77,7 +77,7 @@ void KernelCacheMachOProcessor::ApplyHeader(const KernelCache& cache, KernelCach
 		const auto exportSymbols = header.ReadExportSymbolTrie(m_view);
 		for (const auto& sym : exportSymbols)
 		{
-			auto [symbol, symbolType] = sym.GetBNSymbolAndType(*m_view);
+			auto [symbol, symbolType] = sym.GetBNSymbolAndType(m_demanglerConfig);
 			ApplySymbol(m_view, typeLib, symbol, symbolType);
 		}
 	}

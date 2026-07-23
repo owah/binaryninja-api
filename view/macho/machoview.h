@@ -1487,7 +1487,7 @@ namespace BinaryNinja
 		bool m_relocatable = false;
 
 		bool m_extractMangledTypes;
-		bool m_simplifyTemplates;
+		DemanglerConfig m_demanglerConfig;
 
 		SymbolQueue* m_symbolQueue = nullptr;
 		Ref<Logger> m_logger;

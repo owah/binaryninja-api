@@ -7,6 +7,7 @@ class SharedCacheMachOProcessor
 {
 	BinaryNinja::Ref<BinaryNinja::BinaryView> m_view;
 	BinaryNinja::Ref<BinaryNinja::Logger> m_logger;
+	BinaryNinja::DemanglerConfig m_demanglerConfig;
 	std::shared_ptr<VirtualMemory> m_vm;
 
 	bool m_applyFunctions = true;

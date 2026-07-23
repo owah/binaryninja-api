@@ -7,6 +7,7 @@ class KernelCacheMachOProcessor
 {
 	BinaryNinja::Ref<BinaryNinja::BinaryView> m_view;
 	BinaryNinja::Ref<BinaryNinja::Logger> m_logger;
+	BinaryNinja::DemanglerConfig m_demanglerConfig;
 
 	bool m_applyFunctions = true;
 

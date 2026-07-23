@@ -331,7 +331,7 @@ namespace BinaryNinja
 		Ref<Logger> m_logger;
 		bool m_is64;
 		bool m_extractMangledTypes;
-		bool m_simplifyTemplates;
+		DemanglerConfig m_demanglerConfig;
 		bool m_relocatable = false;
 
 		virtual uint64_t PerformGetEntryPoint() const override;
